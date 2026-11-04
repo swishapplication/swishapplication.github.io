@@ -135,7 +135,7 @@ async function loadAll() {
     bets: bets.filter((b) => b.session_id === s.id).map((b) => ({ id: b.id, from: b.from_id, to: b.to_id, stake: b.stake, text: b.stake_text, status: b.status, winner: b.winner })),
     teamBets: tbets.filter((b) => b.session_id === s.id).map((b) => ({ id: b.id, fromTeam: b.from_team, by: b.by_id, text: b.stake_text, status: b.status, winnerTeam: b.winner_team })),
   }));
-  state.notifs = (notifs.data || []).map((n) => ({ id: n.id, icon: n.icon, title: n.title, body: n.body, link: n.link, linkLabel: n.link_label, time: new Date(n.created_at) }));
+  state.notifs = (notifs.data || []).map((n) => ({ id: n.id, sid: n.session_id, icon: n.icon, title: n.title, body: n.body, link: n.link, linkLabel: n.link_label, time: new Date(n.created_at) }));
   state.credits = (credits.data || []).map((c) => ({ winner: c.winner, loser: c.loser, used: c.used }));
   state.debts = (debts.data || []).map((d) => ({ id: d.id, from: d.from_ids, to: d.to_ids, text: d.stake_text, date: parseDate(d.game_date), team: d.team, settled: d.settled }));
 }
@@ -325,7 +325,8 @@ function alertsView() {
   let h = `<h2>Alerts</h2>`;
   if (!state.notifs.length) h += `<div class="empty">No alerts yet. They'll show up here and on your phone.</div>`;
   state.notifs.forEach((n) => {
-    h += `<div class="notif"><div class="ic">${esc(n.icon)}</div><div style="flex:1"><b>${esc(n.title)}</b><p style="white-space:pre-line">${esc(n.body)}</p>
+    const tap = n.sid ? ` data-act="opengame" data-id="${n.sid}" style="cursor:pointer"` : "";
+    h += `<div class="notif${n.sid ? " tap" : ""}"${tap}><div class="ic">${esc(n.icon)}</div><div style="flex:1"><b>${esc(n.title)}</b><p style="white-space:pre-line">${esc(n.body)}</p>${n.sid ? `<div class="go">View challenge →</div>` : ""}
     ${n.link ? `<a href="${esc(n.link)}" target="_blank" rel="noopener" class="pill money" style="text-decoration:none;margin-top:8px">${esc(n.linkLabel || "Open")}</a>` : ""}
     <div class="chan"><span>${fmtShort(n.time)} · ${hhmm(n.time)}</span></div></div></div>`;
   });
@@ -342,7 +343,7 @@ function meView() {
     <div><b>${m.mvps}🐐</b><span>MVP awards</span></div><div><b>${$$(m.spent)}</b><span>Spent on courts</span></div><div><b>${d === null ? "–" : d + "d"}</b><span>Since last game</span></div></div>
   <div class="sec">Notifications</div>
   <div class="toggle"><div>🔔 Push on this phone<small>${pushTxt}</small></div>${state.pushState === "on" ? '<span class="pill in">On</span>' : state.pushState === "off" || state.pushState === "unknown" ? '<button class="btn primary sm" data-act="push">Turn on</button>' : ""}</div>
-  ${[["email", "✉️ Email", "Booking confirmations, spots & reminders"], ["push", "📲 Push", "Instant alerts on your phone"]].map(([k, l, dd]) =>
+  ${[["push", "📲 Push", "Instant alerts on your phone"]].map(([k, l, dd]) =>
     `<div class="toggle"><div>${l}<small>${dd}</small></div><button class="sw ${m.prefs[k] !== false ? "on" : ""}" data-act="pref" data-k="${k}"></button></div>`).join("")}
   <div class="toggle"><div>🔊 Sounds<small>Swish when the app opens and when you book</small></div><button class="sw ${soundOn() ? "on" : ""}" data-act="sound"></button></div>
   <div class="sec">Profile</div>
@@ -375,6 +376,7 @@ function stakeChips(cur, act, noGame, cid) {
 const BLABEL = { pending: "⏳ Waiting", accepted: "🤝 On", declined: "🐔 Declined", won: "💰 Won", void: "🤷 Void", expired: "⌛ Expired" };
 function betsBlock(s, played) {
   const m = meId(); const mineE = entryOf(s, m); let h = "";
+  h += `<div id="betsAnchor"></div>`;
   const tb = s.teamBets.find((b) => ["pending", "accepted", "won"].includes(b.status)) || s.teamBets[s.teamBets.length - 1]; const mt = teamOfPid(s, m);
   if (s.teams && (tb || (!played && mt))) {
     h += `<div class="sec">🍽️ Team challenge</div>`;
@@ -660,6 +662,7 @@ document.addEventListener("click", async (e) => {
   };
   if (acts[a]) return acts[a]();
   if (a === "close") { closeSheet(); return; }
+  if (a === "opengame") { openGame(id, true); return; }
   if (a === "tab") { state.tab = t.dataset.tab; state.open = null; window.scrollTo(0, 0); }
   else if (a === "open") { state.open = id; state.guestOpen = state.chOpen = state.tOpen = false; document.getElementById("sheet").scrollTop = 0; }
   else if (a === "player") { state.open = "player:" + t.dataset.pid; document.getElementById("sheet").scrollTop = 0; }
@@ -673,6 +676,20 @@ document.addEventListener("click", async (e) => {
   else return;
   render();
 });
+// open a game's panel (from an alert, a push notification or a #game-<id> link), jumping to the bets section
+function openGame(id, toBets) {
+  if (!S(id)) { toast("That game isn't available anymore"); return; }
+  state.open = id; state.guestOpen = state.chOpen = state.tOpen = false; state.tab = "games";
+  document.getElementById("sheet").scrollTop = 0; render();
+  if (toBets) setTimeout(() => { const el = document.getElementById("betsAnchor"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 80);
+}
+function openFromHash() {
+  const m = location.hash.match(/^#game-([0-9a-f-]{36})$/i); if (!m || state.screen !== "app") return;
+  history.replaceState(null, "", location.pathname + location.search); openGame(m[1], true);
+}
+window.addEventListener("hashchange", openFromHash);
+navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.openHash) { location.hash = e.data.openHash; } });
+
 // ---------- bottom sheet: swipe down (or tap the handle / ✕ / outside) to close ----------
 function closeSheet() {
   const sh = document.getElementById("sheet");
@@ -727,7 +744,7 @@ setTimeout(() => document.getElementById("splash")?.remove(), 2200);
 async function onSession(session) {
   state.user = session?.user || null;
   if (!state.user) { state.screen = "login"; const { data } = await sb.from("settings").select("*").eq("id", 1).maybeSingle(); if (data) state.settings = data; applyBranding(); render(); return; }
-  await loadAll(); subscribe(); await checkPush(); render();
+  await loadAll(); subscribe(); await checkPush(); render(); openFromHash();
 }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 render();
@@ -736,3 +753,5 @@ await onSession(session);
 sb.auth.onAuthStateChange((ev, session) => { if (ev === "SIGNED_IN" && !state.user) onSession(session); if (ev === "SIGNED_OUT") onSession(null); });
 setInterval(() => { if (state.screen === "app" && !state.open) render(); }, 30000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden && state.user) scheduleReload(); });
+// iPhone ignores the no-zoom setting for pinch gestures, so block them here too
+["gesturestart", "gesturechange", "gestureend"].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));

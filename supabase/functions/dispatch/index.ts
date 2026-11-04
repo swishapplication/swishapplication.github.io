@@ -78,13 +78,14 @@ Deno.serve(async (req) => {
       const batch = await sql`
         update public.notifications set sent_at = now()
         where id in (select id from public.notifications where sent_at is null order by id limit 100 for update skip locked)
-        returning id, to_id, icon, title, body, link, link_label`;
+        returning id, to_id, icon, title, body, link, link_label, session_id`;
       if (!batch.length) break;
       const ids = [...new Set(batch.map((n) => n.to_id))];
       const people = await sql`select id, email, prefs from public.profiles where id = any(${ids})`;
       const subs = await sql`select endpoint, player_id, sub from public.push_subs where player_id = any(${ids})`;
       const byId = Object.fromEntries(people.map((p) => [p.id, p]));
       await Promise.all(batch.map(async (n) => {
+        if (n.session_id && !n.link && APP_URL) { n.link = APP_URL + "#game-" + n.session_id; n.link_label = "Open in the app"; }
         const p = byId[n.to_id];
         if (!p) return;
         const prefs = p.prefs || {};

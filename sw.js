@@ -19,8 +19,9 @@ self.addEventListener("notificationclick", (event) => {
     const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     if (url.startsWith(appUrl) || url === "./") {
       const w = wins.find((c) => c.url.startsWith(appUrl));
-      if (w) return w.focus();
-      return self.clients.openWindow(appUrl);
+      const hash = url.includes("#") ? url.slice(url.indexOf("#")) : "";
+      if (w) { await w.focus(); if (hash) w.postMessage({ openHash: hash }); return; }
+      return self.clients.openWindow(hash ? appUrl + hash : appUrl);
     }
     return self.clients.openWindow(url);
   })());

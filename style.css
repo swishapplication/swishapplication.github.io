@@ -273,3 +273,66 @@
   .fl{position:fixed;z-index:95;pointer-events:none;animation:floatUp 1.5s ease-out both}
   @keyframes floatUp{0%{transform:translate(-50%,0) scale(.5);opacity:0}15%{opacity:1}100%{transform:translate(calc(-50% + var(--dx)),var(--dy)) rotate(var(--rot)) scale(1.2);opacity:0}}
   @media (prefers-reduced-motion: reduce){.fl,.flames,.hero.gameday,.bdg.on .e,.burst{animation:none}}
+
+  /* ---------- profile photos ---------- */
+  img.av{object-fit:cover;background:#2c303b;display:block}
+  .av.xl{width:72px;height:72px;font-size:24px}
+  .stack img.av{border:2px solid var(--card)}
+  .av-edit{position:relative;cursor:pointer;flex:none}
+  .av-edit .cam{position:absolute;right:-4px;bottom:-4px;width:28px;height:28px;border-radius:50%;background:var(--orange);display:grid;place-items:center;font-size:14px;border:3px solid var(--bg)}
+
+  /* ---------- tab transitions + bottom menu ---------- */
+  #view.slide-l{animation:slideL .28s cubic-bezier(.2,.9,.3,1)}
+  #view.slide-r{animation:slideR .28s cubic-bezier(.2,.9,.3,1)}
+  @keyframes slideL{from{opacity:0;transform:translateX(26px)}}
+  @keyframes slideR{from{opacity:0;transform:translateX(-26px)}}
+  #navBtns{display:flex;flex:1;position:relative;z-index:1}
+  #navInd{position:absolute;left:8px;top:6px;height:calc(100% - 22px);width:calc((100% - 16px)/4);border-radius:16px;background:rgba(255,255,255,.07);
+    border:1px solid rgba(255,255,255,.06);transition:transform .38s cubic-bezier(.3,1.35,.5,1)}
+  nav button .i.bump{animation:iconBump .45s cubic-bezier(.3,1.8,.5,1)}
+  @keyframes iconBump{30%{transform:translateY(-6px) scale(1.25)}}
+
+  /* ---------- loading shimmer ---------- */
+  .sk-wrap{padding:22px 4px}
+  .sk{border-radius:18px;margin-bottom:12px;background:linear-gradient(100deg,#181a21 30%,#262a34 50%,#181a21 70%);background-size:300% 100%;animation:shimmer 1.3s linear infinite}
+  .sk-head{height:34px;width:55%;border-radius:12px;margin-bottom:18px}
+  .sk-hero{height:170px;border-radius:22px}
+  .sk-line{height:22px;width:40%;border-radius:10px;margin:20px 0 14px}
+  .sk-card{height:118px}
+  @keyframes shimmer{from{background-position:100% 0}to{background-position:-200% 0}}
+
+  /* ---------- pull to refresh ---------- */
+  #ptr{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 8px);width:34px;height:34px;opacity:0;z-index:25;transform:translate(-50%,0);pointer-events:none}
+  #ptr .b{width:100%;height:100%}
+  #ptr.spin .b{animation:ptrBounce .42s ease-in infinite alternate}
+  @keyframes ptrBounce{from{transform:translateY(-10px)}to{transform:translateY(8px) scaleY(.88)}}
+
+  /* ---------- shot animation ---------- */
+  .shot{position:fixed;left:0;top:0;width:32px;height:32px;z-index:96;pointer-events:none}
+  .ring.bump{animation:ringBump .55s cubic-bezier(.3,1.7,.5,1)}
+  @keyframes ringBump{35%{transform:scale(1.28)}}
+  .pill.in.pop{animation:pillPop .6s cubic-bezier(.3,1.9,.5,1)}
+  @keyframes pillPop{0%{transform:scale(.4);opacity:0}100%{transform:none}}
+
+  /* ---------- almost full + sold out ---------- */
+  .card{position:relative;overflow:hidden}
+  .card.hot{border-color:rgba(255,107,26,.7);animation:hotGlow 1.6s ease-in-out infinite}
+  @keyframes hotGlow{50%{box-shadow:0 0 0 3px rgba(255,107,26,.25),0 0 26px rgba(255,107,26,.35)}}
+  .card.sold .row,.card.sold .stack{opacity:.55}
+  .stamp{position:absolute;right:14px;top:50%;transform:translateY(-50%) rotate(-14deg);z-index:2;font-family:'Archivo Black',system-ui,sans-serif;font-size:22px;letter-spacing:1px;
+    color:#ff4d5e;border:3px solid #ff4d5e;border-radius:10px;padding:2px 10px;background:rgba(14,15,19,.55);animation:stampIn .45s cubic-bezier(.3,1.6,.5,1) both}
+  @keyframes stampIn{from{transform:translateY(-50%) rotate(-14deg) scale(2.2);opacity:0}}
+
+  /* ---------- rank arrows ---------- */
+  .lb .rk{display:flex;flex-direction:column;align-items:center;line-height:1.05}
+  .mv{font-style:normal;font-size:9.5px;font-weight:900;font-family:'Bricolage Grotesque',system-ui,sans-serif}
+  .mv.up{color:var(--lime)} .mv.down{color:var(--red)}
+
+  /* ---------- court texture + team colours ---------- */
+  .app{background:
+    radial-gradient(600px 300px at 90% -60px,rgba(255,107,26,.28),transparent 70%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 700' fill='none' stroke='white' stroke-opacity='.035' stroke-width='2'%3E%3Crect x='20' y='20' width='360' height='660' rx='6'/%3E%3Cpath d='M20 350h360'/%3E%3Ccircle cx='200' cy='350' r='55'/%3E%3Ccircle cx='200' cy='350' r='16'/%3E%3Crect x='140' y='20' width='120' height='150'/%3E%3Ccircle cx='200' cy='170' r='60'/%3E%3Cpath d='M50 20v70a150 150 0 0 0 300 0V20'/%3E%3Crect x='140' y='530' width='120' height='150'/%3E%3Ccircle cx='200' cy='530' r='60'/%3E%3Cpath d='M50 680v-70a150 150 0 0 1 300 0v70'/%3E%3C/svg%3E") center 90px/100% auto no-repeat,
+    var(--bg)}
+  .team.A{background:linear-gradient(180deg,rgba(255,154,61,.12),var(--card) 60%)}
+  .team.B{background:linear-gradient(180deg,rgba(200,244,60,.10),var(--card) 60%)}
+  @media (prefers-reduced-motion: reduce){#view.slide-l,#view.slide-r,.card.hot,.stamp,.sk{animation:none}}

@@ -29,6 +29,27 @@ function ensureAudio() {
   try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume().catch(() => {}); } catch { actx = null; }
   return actx;
 }
+// real recordings: sounds/swish.mp3 (ball through the net) and sounds/cheer.mp3 (crowd cheer)
+const sndBuf = {}, sndLoading = {};
+function loadSound(name) {
+  const ctx = ensureAudio(); if (!ctx) return Promise.resolve(null); if (sndBuf[name]) return Promise.resolve(sndBuf[name]);
+  if (!sndLoading[name]) sndLoading[name] = fetch(`sounds/${name}.mp3`).then((r) => { if (!r.ok) throw 0; return r.arrayBuffer(); })
+    .then((b) => new Promise((res, rej) => ctx.decodeAudioData(b, res, rej))).then((buf) => (sndBuf[name] = buf)).catch(() => { delete sndLoading[name]; return null; });
+  return sndLoading[name];
+}
+function playSound(name, vol = 1) {
+  if (!soundOn()) return; const ctx = ensureAudio(); if (!ctx) return;
+  loadSound(name).then((buf) => { if (!buf || ctx.state !== "running") return; const src = ctx.createBufferSource(), g = ctx.createGain(); g.gain.value = vol; src.buffer = buf; src.connect(g).connect(ctx.destination); src.start(); });
+}
+// arena buzzer (generated): two rough, slightly detuned tones
+function playBuzzer() {
+  if (!soundOn()) return; const ctx = ensureAudio(); if (!ctx || ctx.state !== "running") return; const t = ctx.currentTime;
+  const out = ctx.createGain(); out.gain.setValueAtTime(0.0001, t); out.gain.exponentialRampToValueAtTime(0.32, t + 0.02); out.gain.setValueAtTime(0.32, t + 0.85); out.gain.exponentialRampToValueAtTime(0.0001, t + 1.05);
+  const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2200; lp.connect(out).connect(ctx.destination);
+  [[196, "sawtooth"], [199.5, "sawtooth"], [392, "square"]].forEach(([f, type]) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = type; o.frequency.value = f; g.gain.value = type === "square" ? 0.18 : 0.5; o.connect(g).connect(lp); o.start(t); o.stop(t + 1.1); });
+  buzz([300]);
+}
+setTimeout(() => loadSound("cheer"), 3000);
 // the swish: a real recording of a ball going through the net (sounds/swish.mp3)
 let swishBuf = null, swishLoading = null;
 function loadSwish() {
@@ -42,6 +63,7 @@ function playSwish() {
   const go = () => { if (!swishBuf || ctx.state !== "running") return; const src = ctx.createBufferSource(); src.buffer = swishBuf; src.connect(ctx.destination); src.start(); };
   if (swishBuf) go(); else loadSwish().then(go);
 }
+window.__sounds = { playSwish: () => playSwish(), playBuzzer: () => playBuzzer(), playCheer: () => playSound("cheer") };
 loadSwish();
 document.addEventListener("pointerdown", ensureAudio, { once: true });
 
@@ -85,7 +107,7 @@ function calUrl(s) {
     "&location=" + encodeURIComponent(s.court + ", " + s.address) + "&details=" + encodeURIComponent("Your share: " + $$(each(s)));
 }
 const initials = (n) => (n || "?").slice(0, 2).toUpperCase();
-const av = (p, cls = "") => `<div class="av ${cls}" style="background:${p.color}">${esc(initials(p.name))}</div>`;
+const av = (p, cls = "") => p.avatar ? `<img class="av ${cls}" src="${esc(p.avatar)}" alt="" loading="lazy" decoding="async">` : `<div class="av ${cls}" style="background:${p.color}">${esc(initials(p.name))}</div>`;
 const avR = (r, cls = "") => r.guest ? `<div class="av ${cls}" style="background:#3a3f4c;color:#fff">+${esc(r.guest[0].toUpperCase())}</div>` : av(P(r.pid), cls);
 
 // ================= data =================
@@ -111,7 +133,7 @@ async function loadAll() {
   ]);
   const { data: bdg } = await sb.rpc("get_badges");
   state.badges = {}; (bdg || []).forEach((r) => (state.badges[r.player_id] = [...(state.badges[r.player_id] || []), r.badge]));
-  const toP = (p) => ({ id: p.id, name: p.name || (p.email || "").split("@")[0], email: p.email, phone: p.phone, color: p.color, admin: p.is_admin, status: p.status,
+  const toP = (p) => ({ id: p.id, name: p.name || (p.email || "").split("@")[0], email: p.email, phone: p.phone, color: p.color, avatar: p.avatar_url, admin: p.is_admin, status: p.status,
     prefs: p.prefs || {}, skill: p.skill, games: p.games, wins: p.wins, mvps: p.mvps, spent: Number(p.spent), lastPlayed: p.last_played ? parseDate(p.last_played) : null });
   const all = (profiles.data || []).map(toP);
   state.players = all.filter((p) => p.status === "approved");
@@ -148,8 +170,11 @@ let reloadTimer = null;
 function scheduleReload() {
   clearTimeout(reloadTimer);
   reloadTimer = setTimeout(async () => {
+    const fullBefore = new Set(upcoming().filter((s) => entryOf(s, meId()) && s.roster.length >= s.capacity).map((s) => s.id));
     const os = state.open && S(state.open); const before = os ? Object.fromEntries(Object.entries(os.hype).map(([k, v]) => [k, v.length])) : null; const openId = state.open;
     await loadAll(); render(); celebrate();
+    const nowFull = upcoming().filter((s) => entryOf(s, meId()) && s.roster.length >= s.capacity && !fullBefore.has(s.id));
+    if (nowFull.length && Date.now() - lastLocalJoin > 4000) { playSound("cheer", 0.7); toast(`🏀 ${fmtShort(nowFull[0].date)} is FULL. Game on!`); }
     const ns = state.open === openId && S(openId);
     if (ns && before && Date.now() - lastLocalHype > 2500) Object.entries(ns.hype).forEach(([e, v]) => { if (v.length > (before[e] || 0)) floatEmoji(document.querySelector(`#sheet [data-act=hype][data-e="${e}"]`), e, 5); });
   }, 350);
@@ -173,10 +198,26 @@ async function rpc(fn, args) {
 }
 
 // ================= actions =================
+const MINI_BALL = '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="#ff6b1a"/><g fill="none" stroke="#1a0b02" stroke-width="2.5"><circle cx="20" cy="20" r="18"/><path d="M2 20h36M20 2v36M7 7c7 6 7 20 0 26M33 7c-7 6-7 20 0 26"/></g></svg>';
+function shotAnim(btn) {
+  const ring = document.querySelector("#sheet .ring"); if (!btn || !ring) return;
+  const a = btn.getBoundingClientRect(), b = ring.getBoundingClientRect();
+  const x0 = a.left + a.width / 2, y0 = a.top + a.height / 2, x1 = b.left + b.width / 2, y1 = b.top + b.height / 2, peak = Math.min(y0, y1) - 140;
+  const ball = document.createElement("div"); ball.className = "shot"; ball.innerHTML = MINI_BALL; document.body.appendChild(ball);
+  const frames = []; for (let i = 0; i <= 20; i++) { const t = i / 20, x = x0 + (x1 - x0) * t, y = (1 - t) ** 2 * y0 + 2 * (1 - t) * t * peak + t ** 2 * y1;
+    frames.push({ transform: `translate(${x - 16}px, ${y - 16}px) scale(${1.15 - 0.45 * t}) rotate(${t * 600}deg)`, opacity: t > 0.92 ? (1 - t) * 12 : 1 }); }
+  ball.animate(frames, { duration: 700, easing: "cubic-bezier(.35,.05,.4,1)" }).onfinish = () => {
+    ball.remove(); const r = document.querySelector("#sheet .ring"); if (r) { r.classList.remove("bump"); void r.offsetWidth; r.classList.add("bump"); }
+  };
+  buzz([18, 40, 28]);
+}
+const buzz = (pattern) => { try { navigator.vibrate?.(pattern); } catch {} };
 async function join(id) {
+  lastLocalJoin = Date.now(); const s0 = S(id); if (s0 && isOpen(s0) && s0.roster.length < s0.capacity) shotAnim(document.querySelector('#sheet [data-act="join"]'));
   const { data, error } = await rpc("join_game", { _sid: id }); if (error) return;
-  if (data === "full") { playSwish(); confetti(); toast("🏀 You took the last spot. Squad is FULL!"); }
-  else if (data === "in") { playSwish(); toast("✅ You're in! See you on court."); }
+  const popIn = () => setTimeout(() => document.querySelector("#sheet .pill.in")?.classList.add("pop"), 30);
+  if (data === "full") { playSwish(); setTimeout(() => playSound("cheer", 0.8), 350); confetti(); buzz([40, 60, 40, 60, 80]); popIn(); toast("🏀 You took the last spot. Squad is FULL!"); }
+  else if (data === "in") { playSwish(); popIn(); toast("✅ You're in! See you on court."); }
   else if (String(data).startsWith("waitlist")) toast(`⏳ You're #${data.split(":")[1]} on the waitlist`);
 }
 async function leave(id) {
@@ -224,6 +265,22 @@ async function uploadLogo(file) {
     const { error } = await rpc("update_settings", { _app_name: null, _logo: c.toDataURL("image/png"), _pay_link: null }); if (!error) toast("🖼️ New logo set");
   };
   img.onerror = () => toast("⚠️ Couldn't read that image"); img.src = url;
+}
+
+// profile photo: crop to a square, shrink, upload to the "avatars" bucket, save the link
+async function uploadAvatar(file) {
+  toast("📸 Uploading your photo…");
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); });
+    const c = document.createElement("canvas"); c.width = c.height = 320; const g = c.getContext("2d"); const sz = Math.min(img.width, img.height);
+    g.drawImage(img, (img.width - sz) / 2, (img.height - sz) / 2, sz, sz, 0, 0, 320, 320); URL.revokeObjectURL(img.src);
+    const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.86));
+    const path = `${meId()}/${Date.now()}.jpg`;
+    const up = await sb.storage.from("avatars").upload(path, blob, { contentType: "image/jpeg", upsert: true });
+    if (up.error) throw up.error;
+    const { data } = sb.storage.from("avatars").getPublicUrl(path);
+    const { error } = await rpc("set_avatar", { _url: data.publicUrl }); if (!error) { toast("📸 Looking good!"); confetti(); }
+  } catch (e) { toast("⚠️ Couldn't upload that photo"); }
 }
 
 // push notifications
@@ -282,7 +339,7 @@ function pushCard() {
 const gameStart = (s) => { const [hh, mm] = s.time.split(":").map(Number); const d = new Date(s.date); d.setHours(hh, mm, 0, 0); return d; };
 const fmtCount = (ms) => { ms = Math.max(0, ms); const t = Math.floor(ms / 1000), d = Math.floor(t / 86400), h = Math.floor((t % 86400) / 3600), mi = Math.floor((t % 3600) / 60), se = t % 60;
   return (d ? `${d}d ` : "") + pad(h) + ":" + pad(mi) + ":" + pad(se); };
-const cdSpan = (target) => `<div class="cd" data-cd="${target.getTime()}">${fmtCount(target - Date.now())}</div>`;
+const cdSpan = (target, kind = "") => `<div class="cd" data-cd="${target.getTime()}" data-kind="${kind}">${fmtCount(target - Date.now())}</div>`;
 const heroBall = `<svg class="bg" viewBox="0 0 40 40"><g fill="none" stroke="#000" stroke-width="2"><circle cx="20" cy="20" r="18"/><path d="M2 20h36M20 2v36M7 7c7 6 7 20 0 26M33 7c-7 6-7 20 0 26"/></g></svg>`;
 function heroCard(m, ups, mine) {
   const now = Date.now(), ds = daysSince(m);
@@ -301,13 +358,14 @@ function heroCard(m, ups, mine) {
     return `<div class="hero" data-act="open" data-id="${open.id}">${heroBall}<div class="tag">Spots open · ${left} left</div><h3>${fmtShort(open.date)}, ${fmtTime(open.time)} · ${esc(open.court)}</h3><div class="cdwrap"><small>Tip-off in</small>${cdSpan(gameStart(open))}</div>
       <button class="btn dark sm" style="margin-top:12px" data-act="open" data-id="${open.id}">🏀 Book my spot</button>${stats}</div>`; }
   const lock = ups.filter((s) => !isOpen(s)).sort((a, b) => a.opensAt - b.opensAt)[0];
-  if (lock) return `<div class="hero">${heroBall}<div class="tag">Next ${DOW[lock.date.getDay()]} game · ${fmtShort(lock.date)}, ${fmtTime(lock.time)}</div><h3>Booking opens in</h3>${cdSpan(lock.opensAt)}<p style="margin-top:4px">Be quick. First come, first served ⚡</p>${stats}</div>`;
+  if (lock) return `<div class="hero">${heroBall}<div class="tag">Next ${DOW[lock.date.getDay()]} game · ${fmtShort(lock.date)}, ${fmtTime(lock.time)}</div><h3>Booking opens in</h3>${cdSpan(lock.opensAt, "open")}<p style="margin-top:4px">Be quick. First come, first served ⚡</p>${stats}</div>`;
   return `<div class="hero">${heroBall}<h3>Hey ${esc(m.name)}, lace up! 👟</h3><p>No games posted yet.</p>${stats}</div>`;
 }
-let lastCdRender = 0;
+let lastCdRender = 0; const buzzedFor = new Set();
 setInterval(() => {
   document.querySelectorAll("[data-cd]").forEach((el) => {
     const ms = Number(el.dataset.cd) - Date.now(); el.textContent = fmtCount(ms);
+    if (ms <= 0 && el.dataset.kind === "open" && !buzzedFor.has(el.dataset.cd)) { buzzedFor.add(el.dataset.cd); playBuzzer(); toast("📣 Booking is OPEN. Go go go!"); }
     if (ms <= 0 && Date.now() - lastCdRender > 5000 && state.screen === "app" && !state.open) { lastCdRender = Date.now(); scheduleReload(); }
   });
 }, 1000);
@@ -361,7 +419,7 @@ let celebrated = false;
 function celebrate() { if (state.screen !== "app") return; checkUnlocks(); checkMvpReveals(); }
 
 // ================= floating reactions =================
-let lastLocalHype = 0;
+let lastLocalHype = 0, lastLocalJoin = 0;
 function floatEmoji(el, emoji, n = 7) {
   if (!el) return; const r = el.getBoundingClientRect();
   for (let i = 0; i < n; i++) {
@@ -378,6 +436,8 @@ function gamesView() {
   let h = heroCard(m, ups, mine);
   h += installCard();
   h += pushCard();
+  if (!m.avatar && !ls.get("hidePhoto")) h += `<div class="teaser"><span>📸</span><div style="flex:1"><b>Add your photo</b><br>So the squad sees your face on teams, the podium and the leaderboard.
+    <div style="margin-top:10px"><label class="btn primary sm" style="display:inline-block;width:auto">Add photo<input type="file" accept="image/*" data-field="avatar" style="display:none"></label></div></div><button class="btn ghost sm" data-act="hidephoto">✕</button></div>`;
   state.credits.filter((c) => c.winner === meId() && !c.used).forEach((c) => h += `<div class="gift"><span>🎁</span><div><b>Your next game is free!</b><br>${esc(P(c.loser).name)} lost a bet and pays your next spot.</div></div>`);
   state.credits.filter((c) => c.loser === meId() && !c.used).forEach((c) => h += `<div class="gift owe"><span>💸</span><div><b>You owe ${esc(P(c.winner).name)} a game</b><br>You'll cover their spot the next time they book.</div></div>`);
   state.debts.filter((d) => d.to.includes(meId()) || d.from.includes(meId())).forEach((d) => {
@@ -392,7 +452,8 @@ function gamesView() {
   if (!m.admin) locked.forEach((s) => h += `<div class="teaser"><span>🔒</span><div><b>Next ${DOW[s.date.getDay()]} game: ${fmtShort(s.date)}, ${fmtTime(s.time)}</b><br>Booking opens ${fmtOpen(s)}. We'll notify you.</div></div>`);
   if (!shown.length && !(locked.length && !m.admin)) h += `<div class="empty">No games open right now.${m.admin ? " Post a one-off game or set up your weekly game." : ""}</div>`;
   shown.forEach((s) => {
-    h += `<div class="card" data-act="open" data-id="${s.id}"><div class="row">
+    const leftN = s.capacity - s.roster.length, hot = isOpen(s) && leftN > 0 && leftN <= 2, sold = leftN <= 0;
+    h += `<div class="card ${hot ? "hot" : ""} ${sold ? "sold" : ""}" data-act="open" data-id="${s.id}">${sold ? '<div class="stamp">SOLD OUT</div>' : ""}<div class="row">
       <div class="day"><small>${fmtDay(s.date)}</small><big>${s.date.getDate()}</big><small style="margin:2px 0 0">${s.date.toLocaleDateString("en-GB", { month: "short" })}</small></div>
       <div class="meta"><div class="t">${fmtTime(s.time)} · ${s.capacity}-player court</div><div class="m">${esc(s.court)}</div>
         <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">${statusPill(s)}<span class="pill money">${$$(eachFull(s))} each</span>${s.ruleId ? '<span class="pill">🔁 Weekly</span>' : '<span class="pill">📌 One-off</span>'}${s.waitlist.length ? `<span class="pill wait">+${s.waitlist.length} waiting</span>` : ""}${s.teams ? '<span class="pill hot">⚔️ Teams out</span>' : ""}</div></div>
@@ -424,10 +485,17 @@ function squadView() {
   }
   h += `<div class="seg" style="margin-bottom:12px">${[["games", "Games"], ["wins", "Wins"], ["mvps", "🐐 MVPs"], ["away", "😴 Away"]].map(([k, l]) => `<button class="${state.sort === k ? "on" : ""}" data-act="sort" data-v="${k}">${l}</button>`).join("")}</div>`;
   if (state.sort === "away") h += `<div class="sub">Days since each player's last game${m.admin ? ". Nudge the ones you miss 👋" : ""}</div>`;
+  let moves = {};
+  if (state.sort !== "away") {
+    const cur = Object.fromEntries(ranked.map((p, i) => [p.id, i + 1])); const k = "ranks:" + state.sort;
+    let st; try { st = JSON.parse(ls.get(k) || "{}"); } catch { st = {}; }
+    if (JSON.stringify(st.cur) !== JSON.stringify(cur)) { st = { prev: st.cur || cur, cur }; ls.set(k, JSON.stringify(st)); }
+    ranked.forEach((p) => { const was = st.prev?.[p.id]; if (was) moves[p.id] = was - cur[p.id]; });
+  }
   ranked.forEach((p, i) => {
     const d = daysSince(p); const b = []; if (state.sort !== "away" && i === 0 && key(p) > 0) b.push("👑"); if (p.mvps) b.push("🐐".repeat(Math.min(p.mvps, 3))); if (p.admin) b.push("🛡️"); if (p.games >= 20) b.push("💯"); badgesOf(p.id).forEach((k) => BADGES[k] && b.push(BADGES[k].e));
     const stat = { games: `${p.games} games`, wins: `${p.wins} wins · ${p.games ? Math.round((p.wins / p.games) * 100) : 0}% win rate`, mvps: `${p.mvps} MVP award${p.mvps === 1 ? "" : "s"}`, away: d === null ? "No games yet" : `Last game ${d === 0 ? "today" : d === 1 ? "yesterday" : d + " days ago"}` }[state.sort];
-    h += `<div class="lb ${state.sort !== "away" && i === 0 && key(p) > 0 ? "top1" : ""}" ${m.admin ? `data-act="player" data-pid="${p.id}" style="cursor:pointer"` : ""}><div class="rk">${state.sort === "away" ? "" : i + 1}</div>${av(p)}<div style="flex:1;min-width:0"><div style="font-weight:800">${esc(p.name)}${p.id === meId() ? " (you)" : ""} <span class="badges">${b.join("")}</span></div>
+    h += `<div class="lb ${state.sort !== "away" && i === 0 && key(p) > 0 ? "top1" : ""}" ${m.admin ? `data-act="player" data-pid="${p.id}" style="cursor:pointer"` : ""}><div class="rk">${state.sort === "away" ? "" : i + 1}${moves[p.id] > 0 ? `<i class="mv up">▲${moves[p.id]}</i>` : moves[p.id] < 0 ? `<i class="mv down">▼${-moves[p.id]}</i>` : ""}</div>${av(p)}<div style="flex:1;min-width:0"><div style="font-weight:800">${esc(p.name)}${p.id === meId() ? " (you)" : ""} <span class="badges">${b.join("")}</span></div>
     <div style="color:var(--muted);font-size:12px;font-weight:600">${stat}</div></div>
     ${d === null ? "" : `<span class="pill ${d >= 21 ? "full" : d >= 14 ? "hot" : ""}">${d >= 14 ? "😴 " : ""}${d}d</span>`}
     ${m.admin && d !== null && d >= 14 && p.id !== meId() ? `<button class="btn ghost sm" data-act="nudge" data-pid="${p.id}">👋</button>` : ""}</div>`;
@@ -454,11 +522,11 @@ function alertsView() {
 function meView() {
   const m = me(); const d = daysSince(m); const wr = m.games ? Math.round((m.wins / m.games) * 100) : 0;
   const pushTxt = { on: "✅ On for this phone", off: "Off on this phone", denied: "Blocked in your phone settings", unsupported: "Not supported in this browser", "needs-install": "Add the app to your home screen first", unknown: "" }[state.pushState];
-  let h = `<div class="row" style="margin:14px 4px 4px;gap:14px">${av(m, "lg")}<div style="min-width:0"><div style="font-family:'Archivo Black',system-ui,sans-serif;font-size:22px">${esc(m.name)}</div><div style="color:var(--muted);font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis">${m.admin ? "🛡️ Admin" : "Player"} · ${esc(m.email)}</div></div></div>
+  let h = `<div class="row" style="margin:14px 4px 4px;gap:14px"><label class="av-edit">${av(m, "xl")}<span class="cam">📷</span><input type="file" accept="image/*" data-field="avatar" style="display:none"></label><div style="min-width:0"><div style="font-family:'Archivo Black',system-ui,sans-serif;font-size:22px">${esc(m.name)}</div><div style="color:var(--muted);font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis">${m.admin ? "🛡️ Admin" : "Player"} · ${esc(m.email)}</div></div></div>
   <div class="sec">My season</div>
   <div class="stats">
-    <div><b>${m.games}</b><span>Games played</span></div><div><b>${m.wins}</b><span>Wins</span></div><div><b>${wr}%</b><span>Win rate</span></div>
-    <div><b>${m.mvps}🐐</b><span>MVP awards</span></div><div><b>${$$(m.spent)}</b><span>Spent on courts</span></div><div><b>${d === null ? "–" : d + "d"}</b><span>Since last game</span></div></div>
+    <div><b data-count="${m.games}">${m.games}</b><span>Games played</span></div><div><b data-count="${m.wins}">${m.wins}</b><span>Wins</span></div><div><b data-count="${wr}" data-suf="%">${wr}%</b><span>Win rate</span></div>
+    <div><b data-count="${m.mvps}" data-suf="🐐">${m.mvps}🐐</b><span>MVP awards</span></div><div><b data-count="${m.spent}" data-money="1">${$$(m.spent)}</b><span>Spent on courts</span></div><div><b ${d === null ? "" : `data-count="${d}" data-suf="d"`}>${d === null ? "–" : d + "d"}</b><span>Since last game</span></div></div>
   <div class="sec">🏅 Badges</div>
   <div class="badges-grid">${Object.entries(BADGES).map(([k, B]) => { const has = badgesOf(meId()).includes(k);
     return `<div class="bdg ${has ? "on" : ""} ${k}"><div class="e">${B.e}</div><b>${B.n}</b><small>${has ? (k === "ghost" ? "Active, go play!" : "Unlocked") : B.d}</small></div>`; }).join("")}</div>
@@ -468,6 +536,7 @@ function meView() {
     `<div class="toggle"><div>${l}<small>${dd}</small></div><button class="sw ${m.prefs[k] !== false ? "on" : ""}" data-act="pref" data-k="${k}"></button></div>`).join("")}
   <div class="toggle"><div>🔊 Sounds<small>Swish when the app opens and when you book</small></div><button class="sw ${soundOn() ? "on" : ""}" data-act="sound"></button></div>
   <div class="sec">Profile</div>
+  <div class="row" style="gap:8px"><label class="btn ghost sm" style="width:auto;display:inline-block">📷 ${m.avatar ? "Change photo" : "Add a photo"}<input type="file" accept="image/*" data-field="avatar" style="display:none"></label>${m.avatar ? '<button class="btn ghost sm" style="width:auto" data-act="rmavatar">Remove photo</button>' : ""}</div>
   <label class="f">Name</label><input id="pfName" value="${esc(m.name)}" maxlength="24">
   <label class="f">Phone (optional)</label><input id="pfPhone" value="${esc(m.phone || "")}" maxlength="30">
   <button class="btn ghost" style="margin-top:10px" data-act="saveprofile">Save profile</button>`;
@@ -657,6 +726,9 @@ function playerSheet(pid) {
 }
 
 // ---------- screens before the app ----------
+function skeletonView() {
+  return `<div class="sk-wrap"><div class="sk sk-head"></div><div class="sk sk-hero"></div><div class="sk sk-line"></div>${'<div class="sk sk-card"></div>'.repeat(3)}</div>`;
+}
 function loginView() {
   const logo = state.settings.logo ? `<img src="${esc(state.settings.logo)}" alt="" style="width:84px;height:84px;border-radius:24px;object-fit:cover">` : BALL.replace('class="ball"', 'style="width:84px;height:84px"');
   return `<div class="gate"><div>${logo}</div><h1>${esc(state.settings.app_name)}</h1><p class="sub" style="margin:0 0 22px">Book your spot. Talk your trash. 🏀</p>
@@ -691,25 +763,39 @@ function applyBranding() {
   if (link && (st.app_name !== "Swish" || st.logo)) link.href = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" }));
 }
 
+const TABS = ["games", "squad", "alerts", "me"]; let lastTab = null;
+const countText = (el, v) => el.dataset.money ? $$(v) : (el.dataset.pre || "") + Math.round(v) + (el.dataset.suf || "");
+function countUp(el) {
+  const to = Number(el.dataset.count) || 0, t0 = performance.now(), dur = 900;
+  const step = (t) => { const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = countText(el, to * e); if (k < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
 function render() {
   const view = document.getElementById("view"); const nav = document.getElementById("nav"); const hdr = document.getElementById("hdr");
   if (state.screen !== "app") {
     hdr.style.display = "none"; nav.style.display = "none"; document.getElementById("scrim").classList.remove("show");
-    view.innerHTML = state.screen === "login" ? loginView() : state.screen === "onboard" ? onboardView() : state.screen === "pending" ? pendingView() : `<div class="gate"><div class="spin">🏀</div></div>`;
+    view.innerHTML = state.screen === "login" ? loginView() : state.screen === "onboard" ? onboardView() : state.screen === "pending" ? pendingView() : skeletonView();
     wireForms(); return;
   }
   hdr.style.display = ""; nav.style.display = "";
   const m = me();
   document.getElementById("logo").innerHTML = (state.settings.logo ? `<img class="ball" src="${esc(state.settings.logo)}" alt="">` : BALL) + esc(state.settings.app_name);
   document.getElementById("whoChip").innerHTML = `${av(m, "sm")}<b>${esc(m.name)}</b>${m.admin ? "🛡️" : ""}`;
-  const scrollY = window.scrollY;
+  const scrollY = window.scrollY; const tabChanged = state.tab !== lastTab;
   view.innerHTML = { games: gamesView, squad: squadView, alerts: alertsView, me: meView }[state.tab]();
-  window.scrollTo(0, scrollY);
+  if (tabChanged) {
+    const dir = TABS.indexOf(state.tab) > TABS.indexOf(lastTab) ? "slide-l" : "slide-r";
+    view.classList.remove("slide-l", "slide-r"); void view.offsetWidth; if (lastTab) view.classList.add(dir); window.scrollTo(0, 0);
+  } else window.scrollTo(0, scrollY);
+  view.querySelectorAll("[data-count]").forEach((el) => (tabChanged ? countUp(el) : (el.textContent = countText(el, Number(el.dataset.count)))));
   if (state.tab === "alerts" && state.notifs[0]) { state.lastSeen = state.notifs[0].id; ls.set("lastSeenNotif", state.lastSeen); }
   const unread = state.notifs.filter((n) => n.id > state.lastSeen).length;
   const reqs = m.admin ? state.pending.length : 0;
-  nav.innerHTML = [["games", "🏀", "Games"], ["squad", "🏆", "Squad"], ["alerts", "🔔", "Alerts"], ["me", "👤", "Me"]].map(([k, i, l]) =>
+  document.getElementById("navInd").style.transform = `translateX(${TABS.indexOf(state.tab) * 100}%)`;
+  document.getElementById("navBtns").innerHTML = [["games", "🏀", "Games"], ["squad", "🏆", "Squad"], ["alerts", "🔔", "Alerts"], ["me", "👤", "Me"]].map(([k, i, l]) =>
     `<button class="${state.tab === k ? "on" : ""}" data-act="tab" data-tab="${k}"><span class="i">${i}</span>${l}${k === "alerts" && unread && state.tab !== "alerts" ? `<span class="dot">${unread > 99 ? "99+" : unread}</span>` : ""}${k === "squad" && reqs ? `<span class="dot">${reqs}</span>` : ""}</button>`).join("");
+  if (tabChanged && lastTab) document.querySelector("#navBtns .on .i")?.classList.add("bump");
+  lastTab = state.tab;
   const sc = document.getElementById("scrim");
   if (state.open) {
     const sh = document.getElementById("sheet"); const top = sh.scrollTop;
@@ -784,6 +870,8 @@ document.addEventListener("click", async (e) => {
     install: async () => { if (state.installEvt) { state.installEvt.prompt(); state.installEvt = null; render(); } },
     hideinstall: () => { ls.set("hideInstall", "1"); render(); },
     hidepushdenied: () => { ls.set("hidePushDenied", "1"); render(); },
+    rmavatar: () => R("set_avatar", { _url: "" }, "Photo removed"),
+    hidephoto: () => { ls.set("hidePhoto", "1"); render(); },
   };
   if (acts[a]) return acts[a]();
   if (a === "close") { closeSheet(); return; }
@@ -815,6 +903,21 @@ function openFromHash() {
 }
 window.addEventListener("hashchange", openFromHash);
 navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.openHash) { location.hash = e.data.openHash; } });
+
+// ---------- pull down on the main screen to refresh ----------
+(() => {
+  const ptr = document.createElement("div"); ptr.id = "ptr"; ptr.innerHTML = `<div class="b">${MINI_BALL}</div>`; document.body.appendChild(ptr);
+  let y0 = null, d = 0, busy = false;
+  window.addEventListener("touchstart", (e) => { y0 = (state.screen === "app" && !state.open && !busy && window.scrollY <= 0 && !document.querySelector(".ov")) ? e.touches[0].clientY : null; d = 0; }, { passive: true });
+  window.addEventListener("touchmove", (e) => { if (y0 === null) return; d = Math.max(0, Math.min((e.touches[0].clientY - y0) * 0.5, 90));
+    ptr.style.transition = "none"; ptr.style.opacity = Math.min(1, d / 45); ptr.style.transform = `translate(-50%, ${d}px) rotate(${d * 5}deg)`; }, { passive: true });
+  window.addEventListener("touchend", async () => {
+    if (y0 === null) return; y0 = null;
+    if (d > 60) { busy = true; ptr.style.transition = "transform .2s"; ptr.style.transform = "translate(-50%, 62px)"; ptr.classList.add("spin"); buzz(12);
+      await loadAll(); render(); celebrate(); await new Promise((r) => setTimeout(r, 350)); ptr.classList.remove("spin"); busy = false; }
+    ptr.style.transition = "transform .3s ease, opacity .3s"; ptr.style.transform = "translate(-50%, 0)"; ptr.style.opacity = 0; d = 0;
+  });
+})();
 
 // ---------- bottom sheet: swipe down (or tap the handle / ✕ / outside) to close ----------
 function closeSheet() {
@@ -851,6 +954,7 @@ document.addEventListener("change", (e) => {
   const f = e.target.dataset.field;
   if (f === "chTarget") state.chTarget = e.target.value;
   if (f === "logo" && e.target.files[0]) uploadLogo(e.target.files[0]);
+  if (f === "avatar" && e.target.files[0]) uploadAvatar(e.target.files[0]);
 });
 window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); state.installEvt = e; if (state.screen === "app" && state.tab === "games") render(); });
 

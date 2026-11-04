@@ -390,3 +390,10 @@
   .arc-result .big{font-family:'Orbitron',ui-monospace,monospace;font-weight:900;font-size:60px;margin:6px 0}
   .arc-result p{color:var(--muted);font-size:14px;margin-bottom:16px}
   .chal{display:flex;gap:8px;margin-bottom:10px}.chal select{flex:1}
+
+  /* pop-up messages: fully invisible while waiting (nothing peeks under the iPhone status bar), shown just below the notch */
+  .toast{top:calc(env(safe-area-inset-top) + 10px);opacity:0;visibility:hidden;transform:translate(-50%,-30px) scale(.96);
+    transition:transform .3s cubic-bezier(.2,1.4,.4,1),opacity .2s ease,visibility 0s linear .3s}
+  .toast.show{opacity:1;visibility:visible;transform:translate(-50%,0) scale(1);transition:transform .3s cubic-bezier(.2,1.4,.4,1),opacity .15s ease,visibility 0s}
+  #ptr{visibility:hidden}
+  #ptr[style*="opacity: 0."],#ptr[style*="opacity: 1"],#ptr.spin{visibility:visible}

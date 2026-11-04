@@ -1,7 +1,17 @@
 // Service worker: shows push notifications and opens the app when one is tapped.
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
-self.addEventListener("fetch", () => {}); // lets the app be installed to the home screen
+// Fonts, sounds and icons never change, so they come from the phone's cache after the first visit (faster, no flicker).
+// Everything else (the app itself, data) always comes fresh from the network.
+const ASSETS = "swish-assets-v1";
+self.addEventListener("fetch", (e) => {
+  const u = new URL(e.request.url);
+  if (e.request.method !== "GET" || u.origin !== self.location.origin || !/\/(fonts|sounds|icons)\//.test(u.pathname)) return;
+  e.respondWith(caches.open(ASSETS).then(async (c) => {
+    const hit = await c.match(e.request); if (hit) return hit;
+    const res = await fetch(e.request); if (res.ok) c.put(e.request, res.clone()); return res;
+  }));
+});
 
 self.addEventListener("push", (event) => {
   let d = {};

@@ -857,9 +857,9 @@ function render() {
   if (state.screen !== "app") {
     hdr.style.display = "none"; nav.style.display = "none"; document.getElementById("scrim").classList.remove("show");
     view.innerHTML = state.screen === "login" ? loginView() : state.screen === "onboard" ? onboardView() : state.screen === "pending" ? pendingView() : skeletonView();
-    wireForms(); return;
+    wireForms(); if (state.screen !== "loading") splashEnd(); return;
   }
-  hdr.style.display = ""; nav.style.display = "";
+  hdr.style.display = ""; nav.style.display = ""; splashEnd();
   const m = me();
   document.getElementById("logo").innerHTML = (state.settings.logo ? `<img class="ball" src="${esc(state.settings.logo)}" alt="">` : BALL) + esc(state.settings.app_name);
   document.getElementById("whoChip").innerHTML = `${av(m, "sm")}<b>${esc(m.name)}</b>${m.admin ? "🛡️" : ""}`;
@@ -1058,7 +1058,13 @@ function confetti() {
 
 // ================= boot =================
 setTimeout(() => { ensureAudio(); playSwish(); }, 700);   // plays if the phone allows sound on open
-setTimeout(() => document.getElementById("splash")?.remove(), 2200);
+// The splash stays up until the first real screen is drawn (at least 1.55 s so the swish plays, at most 4.5 s),
+// so the app never flashes half-loaded behind it.
+function splashEnd() {   // a hoisted function, so render() can call it at any time
+  if (window.__splashEnded) return; window.__splashEnded = true; const sp = document.getElementById("splash"); if (!sp) return;
+  setTimeout(() => requestAnimationFrame(() => { sp.classList.add("done"); setTimeout(() => sp.remove(), 450); }), Math.max(0, 1550 - performance.now()));
+}
+setTimeout(splashEnd, 4500);
 async function onSession(session) {
   state.user = session?.user || null;
   if (!state.user) { state.screen = "login"; const { data } = await sb.from("settings").select("*").eq("id", 1).maybeSingle(); if (data) state.settings = data; applyBranding(); render(); return; }

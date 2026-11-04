@@ -1,4 +1,4 @@
-// Sends queued notifications by email (Brevo) and push (Web Push).
+// Sends queued notifications by push (Web Push). Email alerts can be switched back on with EMAIL_ALERTS.
 // Called by the app after every action, and every minute by the database (pg_cron).
 import postgres from "npm:postgres@3.4.4";
 import webpush from "npm:web-push@3.6.7";
@@ -7,6 +7,7 @@ const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { prepare: false, max: 1 
 const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") ?? "";
 const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") ?? "";
 const APP_URL = Deno.env.get("APP_URL") ?? "";
+const EMAIL_ALERTS = false; // set to true to email notifications again
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -90,7 +91,8 @@ Deno.serve(async (req) => {
         if (!p) return;
         const prefs = p.prefs || {};
         const tasks: Promise<unknown>[] = [];
-        if (prefs.email !== false) tasks.push(sendEmail(app, p.email, n));
+        // notification emails are switched off: alerts go by push (and show in the app's Alerts tab). Login codes are still emailed by Supabase.
+        if (EMAIL_ALERTS && prefs.email !== false) tasks.push(sendEmail(app, p.email, n));
         if (prefs.push !== false) tasks.push(sendPush(n, subs.filter((s) => s.player_id === n.to_id)));
         await Promise.allSettled(tasks);
       }));

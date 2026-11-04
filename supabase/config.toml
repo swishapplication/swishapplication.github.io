@@ -1,0 +1,56 @@
+# Supabase project settings, pushed automatically by .github/workflows/deploy.yml
+project_id = "hoop-squad"
+
+[api]
+enabled = true
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+major_version = 15
+
+[realtime]
+enabled = true
+
+[auth]
+enabled = true
+site_url = "env(APP_URL)"
+additional_redirect_urls = ["env(APP_URL)"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+enable_signup = true
+enable_anonymous_sign_ins = false
+
+[auth.rate_limit]
+email_sent = 60
+token_verifications = 30
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+secure_password_change = false
+max_frequency = "30s"
+otp_length = 6
+otp_expiry = 900
+
+[auth.email.smtp]
+enabled = true
+host = "smtp-relay.brevo.com"
+port = 587
+user = "env(BREVO_SMTP_LOGIN)"
+pass = "env(BREVO_SMTP_KEY)"
+admin_email = "env(SENDER_EMAIL)"
+sender_name = "Hoop Squad"
+
+[auth.email.template.magic_link]
+subject = "Your Hoop Squad login code"
+content_path = "./supabase/templates/code.html"
+
+[auth.email.template.confirmation]
+subject = "Your Hoop Squad login code"
+content_path = "./supabase/templates/code.html"
+
+[functions.dispatch]
+verify_jwt = false

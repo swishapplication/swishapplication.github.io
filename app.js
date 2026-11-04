@@ -1044,7 +1044,9 @@ document.addEventListener("change", (e) => {
 });
 window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); state.installEvt = e; if (state.screen === "app" && state.tab === "games") render(); });
 
-let tt; function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => t.classList.remove("show"), 2800); }
+// pop-up messages at the top are switched off (Bassem, 4 Nov). Re-enable by removing the next line.
+const TOASTS_ON = false;
+let tt; function toast(msg) { if (!TOASTS_ON) return; const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => t.classList.remove("show"), 2800); }
 function confetti() {
   const cols = ["#ff6b1a", "#c8f43c", "#5ab0ff", "#ff7eb6", "#ffd23f"];
   for (let i = 0; i < 70; i++) {

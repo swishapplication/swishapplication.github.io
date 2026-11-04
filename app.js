@@ -69,7 +69,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden && ac
 const state = {
   screen: "loading", user: null, profile: null, tab: "games", open: null, sort: "games",
   settings: { app_name: "Swish", logo: null, pay_link: "", currency: "$" },
-  players: [], pending: [], badges: {}, rules: [], sessions: [], notifs: [], credits: [], debts: [],
+  players: [], pending: [], badges: {}, arc: { tab: "flick", board: { flick: [], trivia: [] }, champs: {}, triviaToday: null }, rules: [], sessions: [], notifs: [], credits: [], debts: [],
   guestOpen: false, chOpen: false, tOpen: false, stake: "game", tstake: "dinner", chTarget: null, stakeCustom: "", tstakeCustom: "",
   loginEmail: "", codeSent: false, busy: false, pushState: "unknown", installEvt: null, lastSeen: Number(ls.get("lastSeenNotif") || 0),
 };
@@ -161,6 +161,7 @@ async function loadAll() {
   }));
   state.notifs = (notifs.data || []).map((n) => ({ id: n.id, sid: n.session_id, icon: n.icon, title: n.title, body: n.body, link: n.link, linkLabel: n.link_label, time: new Date(n.created_at) }));
   state.credits = (credits.data || []).map((c) => ({ winner: c.winner, loser: c.loser, used: c.used }));
+  await loadArcade();
   state.debts = (debts.data || []).map((d) => ({ id: d.id, from: d.from_ids, to: d.to_ids, text: d.stake_text, date: parseDate(d.game_date), team: d.team, settled: d.settled }));
 }
 
@@ -363,6 +364,7 @@ let lastCdRender = 0; const buzzedFor = new Set();
 setInterval(() => {
   document.querySelectorAll("[data-cd]").forEach((el) => {
     const ms = Number(el.dataset.cd) - Date.now(); el.textContent = fmtCount(ms);
+    if (el.classList.contains("mini-cd")) return;
     if (ms <= 0 && el.dataset.kind === "open" && !buzzedFor.has(el.dataset.cd)) { buzzedFor.add(el.dataset.cd); playBuzzer(); toast("📣 Booking is OPEN. Go go go!"); }
     if (ms <= 0 && Date.now() - lastCdRender > 5000 && state.screen === "app" && !state.open) { lastCdRender = Date.now(); scheduleReload(); }
   });
@@ -375,6 +377,8 @@ const BADGES = {
   shark: { e: "🦈", n: "Bet Shark", d: "Won 3 bets" },
   clutch: { e: "🏆", n: "Clutch", d: "Won MVP twice" },
   ghost: { e: "👻", n: "Ghost", d: "Hasn't played for 30+ days. Play a game to shake it off!" },
+  king: { e: "👑", n: "Arcade King", d: "Top Flick Shot score last week" },
+  brain: { e: "🧠", n: "Trivia Brain", d: "Best Lebanese trivia score last week" },
 };
 const badgesOf = (pid) => state.badges[pid] || [];
 
@@ -428,6 +432,86 @@ function floatEmoji(el, emoji, n = 7) {
     document.body.appendChild(f); setTimeout(() => f.remove(), 1900);
   }
 }
+
+// ================= arcade =================
+const tzToday = () => { try { return new Intl.DateTimeFormat("en-CA", { timeZone: state.settings.tz || "Europe/Berlin" }).format(new Date()); } catch { return new Date().toISOString().slice(0, 10); } };
+const weekStartIso = (iso) => { const d = new Date(iso + "T00:00:00Z"); const dow = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - dow); return d.toISOString().slice(0, 10); };
+async function loadArcade() {
+  const today = tzToday(), wk = weekStartIso(today), lw = (() => { const d = new Date(wk + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().slice(0, 10); })();
+  const [f, t, lf, lt, mine] = await Promise.all([
+    sb.rpc("arcade_board", { _game: "flick" }), sb.rpc("arcade_board", { _game: "trivia" }),
+    sb.rpc("arcade_board", { _game: "flick", _week: lw }), sb.rpc("arcade_board", { _game: "trivia", _week: lw }),
+    sb.from("arcade_scores").select("score").eq("player_id", meId()).eq("game", "trivia").eq("played_on", today).maybeSingle(),
+  ]);
+  state.arc.board = { flick: f.data || [], trivia: t.data || [] };
+  state.arc.champs = { flick: (lf.data || [])[0], trivia: (lt.data || [])[0] };
+  state.arc.triviaToday = mine.data ? mine.data.score : null;
+}
+const nextMonday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return d; };
+const tomorrow0 = () => { const d = new Date(); d.setHours(24, 0, 0, 0); return d; };
+function arcadeView() {
+  const a = state.arc, board = a.board[a.tab], meRow = board.findIndex((r) => r.player_id === meId());
+  const myBest = (g) => (a.board[g].find((r) => r.player_id === meId()) || {}).best;
+  let h = `<h2>🕹️ Arcade</h2><div class="sub">Play between games. Best score this week wins the crown.</div>
+  <div class="arc-tiles">
+    <div class="arc-tile flick" data-act="arcplay" data-g="flick"><div class="ic">🏀</div><div style="flex:1;min-width:0"><b>Flick Shot</b><small>30 seconds. Swipe to shoot. The hoop speeds up.</small></div>
+      <div class="arc-best">${myBest("flick") ?? "–"}<span>your best</span></div></div>
+    <div class="arc-tile trivia ${a.triviaToday !== null ? "done" : ""}" data-act="arcplay" data-g="trivia"><div class="ic">🇱🇧</div><div style="flex:1;min-width:0"><b>Lebanese Hoops Trivia</b>
+      <small>${a.triviaToday !== null ? `✅ Done today: ${a.triviaToday} pts · new questions in <span class="mini-cd" data-cd="${tomorrow0().getTime()}">${fmtCount(tomorrow0() - Date.now())}</span>` : "5 questions a day about the Cedars and the Lebanese league. Same for everyone."}</small></div>
+      <div class="arc-best">${myBest("trivia") ?? "–"}<span>week best</span></div></div>
+  </div>`;
+  const ch = (g, ic) => a.champs[g] ? `<div class="champ"><span>${ic}</span>${av(P(a.champs[g].player_id), "sm")}<div><b>${esc(P(a.champs[g].player_id).name)}</b><small>${g === "flick" ? "Arcade King" : "Trivia Brain"} · ${a.champs[g].best} last week</small></div></div>` : "";
+  if (a.champs.flick || a.champs.trivia) h += `<div class="champs">${ch("flick", "👑")}${ch("trivia", "🧠")}</div>`;
+  h += `<div class="row between" style="margin:18px 2px 8px"><div class="sec" style="margin:0">This week's leaderboard</div><small class="reset">Resets in <span class="mini-cd" data-cd="${nextMonday().getTime()}">${fmtCount(nextMonday() - Date.now())}</span></small></div>
+  <div class="seg" style="margin-bottom:10px"><button class="${a.tab === "flick" ? "on" : ""}" data-act="arctab" data-v="flick">🏀 Flick Shot</button><button class="${a.tab === "trivia" ? "on" : ""}" data-act="arctab" data-v="trivia">🇱🇧 Trivia</button></div>`;
+  if (!board.length) h += `<div class="empty">No scores yet this week. Be the first on the board 👀</div>`;
+  board.forEach((r, i) => {
+    const p = P(r.player_id), medal = ["🥇", "🥈", "🥉"][i] || `<span class="rkn">${i + 1}</span>`;
+    h += `<div class="lb ${i === 0 ? "top1" : ""} ${r.player_id === meId() ? "me" : ""}"><div class="rk" style="font-size:18px">${medal}</div>${av(p)}<div style="flex:1;min-width:0"><div style="font-weight:800">${esc(p.name)}${r.player_id === meId() ? " (you)" : ""}</div>
+      <div style="color:var(--muted);font-size:12px;font-weight:600">${r.plays} ${a.tab === "trivia" ? (r.plays === 1 ? "day" : "days") : (r.plays === 1 ? "game" : "games")} played</div></div><div class="arc-score">${r.best}</div></div>`;
+  });
+  if (board.length && meRow < 0) h += `<div class="sub" style="margin-top:8px">You're not on the board yet this week.</div>`;
+  return h;
+}
+let arcStop = null;
+const arcSfx = { swish: () => playSwish(), rim: () => blipSnd(110, 0.09), miss: () => blipSnd(90, 0.18) };
+function blipSnd(freq, dur) { if (!soundOn()) return; const c = ensureAudio(); if (!c || c.state !== "running") return; const o = c.createOscillator(), g = c.createGain(); o.type = "square"; o.frequency.value = freq; g.gain.setValueAtTime(0.08, c.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur); o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime + dur); }
+function arcPlay(game) {
+  if (game === "trivia" && state.arc.triviaToday !== null) { toast("✅ You've played today's trivia. New questions tomorrow!"); return; }
+  if (!window.SwishArcade) { toast("⚠️ Games are still loading, try again"); return; }
+  ensureAudio(); document.getElementById("arcPlay")?.remove();
+  const el = document.createElement("div"); el.id = "arcPlay";
+  el.innerHTML = `<div class="arc-top"><button class="back" data-arc="quit">✕ Quit</button><b>${game === "flick" ? "🏀 Flick Shot" : "🇱🇧 Lebanese Hoops Trivia"}</b><span></span></div><div class="arc-root"></div>`;
+  document.body.appendChild(el); document.body.classList.add("playing");
+  const root = el.querySelector(".arc-root");
+  el.querySelector('[data-arc="quit"]').onclick = () => {
+    if (game === "trivia" && !el.dataset.done) { toast("Trivia counts once a day, finish it! 😉"); return; }
+    closeArc();
+  };
+  const onEnd = async (score, correct) => {
+    el.dataset.done = 1; arcStop = null;
+    root.innerHTML = `<div class="arc-result"><div class="k">Submitting…</div><div class="big">${score}</div></div>`;
+    const { data, error } = await sb.rpc("submit_score", { _game: game, _score: score });
+    if (error) { root.innerHTML = `<div class="arc-result"><div class="k">Couldn't save</div><div class="big">${score}</div><p>${esc(error.message)}</p><button class="btn ghost" data-arc="quit2">Back</button></div>`; root.querySelector('[data-arc="quit2"]').onclick = closeArc; return; }
+    const pb = data.personal_best && score > 0, first = data.rank === 1;
+    if (first || pb) { setTimeout(() => playSound("cheer", 0.8), 250); confetti(); }
+    const friends = state.players.filter((p) => p.id !== meId());
+    root.innerHTML = `<div class="arc-result"><div class="k">${first ? "👑 #1 this week!" : pb ? "🏆 New personal best!" : "Final score"}</div>
+      <div class="big">${score}</div><p>${game === "trivia" ? `${correct}/5 correct · ` : ""}#${data.rank} of ${data.players} this week${!pb && data.best ? ` · your best: ${data.best}` : ""}</p>
+      ${friends.length && score > 0 ? `<div class="chal"><select id="chalTo">${friends.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select><button class="btn orange sm" data-arc="chal">🎯 Challenge</button></div>` : ""}
+      ${game === "flick" ? `<button class="btn primary" data-arc="again">🏀 Play again</button>` : ""}
+      <button class="btn ghost" style="margin-top:8px" data-arc="done">See leaderboard</button></div>`;
+    root.querySelector('[data-arc="again"]')?.addEventListener("click", () => arcPlay("flick"));
+    root.querySelector('[data-arc="done"]').onclick = () => { state.arc.tab = game; closeArc(); };
+    root.querySelector('[data-arc="chal"]')?.addEventListener("click", async () => {
+      const to = root.querySelector("#chalTo").value; const { error } = await sb.rpc("arcade_challenge", { _to: to, _game: game, _score: score });
+      if (error) toast("⚠️ " + error.message); else { toast(`🎯 Challenge sent to ${P(to).name}`); kickDispatch(); }
+    });
+    kickDispatch(); await loadArcade(); if (state.tab === "arcade") render();
+  };
+  arcStop = game === "flick" ? SwishArcade.flick(root, { sfx: arcSfx, onEnd }) : SwishArcade.trivia(root, window.TRIVIA_LB || [], { sfx: arcSfx, onEnd });
+}
+function closeArc() { if (arcStop) arcStop(); arcStop = null; document.getElementById("arcPlay")?.remove(); document.body.classList.remove("playing"); state.tab = "arcade"; render(); celebrate(); }
 
 function gamesView() {
   const m = me(); const ups = upcoming(); const mine = ups.filter((s) => entryOf(s, meId())); const nxt = mine[0]; const ds = daysSince(m);
@@ -511,7 +595,7 @@ function alertsView() {
     const cal = n.link && n.link.includes("calendar.google.com") && n.sid && S(n.sid);
     const href = cal ? calHref(S(n.sid)) : n.link;
     h += `<div class="notif${n.sid ? " tap" : ""}"${tap}><div class="ic">${esc(n.icon)}</div><div style="flex:1"><b>${esc(n.title)}</b><p style="white-space:pre-line">${esc(n.body)}</p>${n.sid ? `<div class="go">${isBet ? "View challenge →" : "Open game →"}</div>` : ""}
-    ${n.link && (!n.link.includes("calendar.google.com") || cal) ? `<a href="${esc(href)}" ${cal && isIOS() ? "" : 'target="_blank" rel="noopener"'} class="pill money" style="text-decoration:none;margin-top:8px">${esc(n.linkLabel || "Open")}</a>` : ""}
+    ${n.link && (!n.link.includes("calendar.google.com") || cal) ? `<a href="${esc(href)}" ${(cal && isIOS()) || String(href).startsWith("#") ? "" : 'target="_blank" rel="noopener"'} class="pill money" style="text-decoration:none;margin-top:8px">${esc(n.linkLabel || "Open")}</a>` : ""}
     <div class="chan"><span>${fmtShort(n.time)} · ${hhmm(n.time)}</span></div></div></div>`;
   });
   return h;
@@ -761,7 +845,7 @@ function applyBranding() {
   if (link && (st.app_name !== "Swish" || st.logo)) link.href = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" }));
 }
 
-const TABS = ["games", "squad", "alerts", "me"]; let lastTab = null;
+const TABS = ["games", "squad", "arcade", "alerts", "me"]; let lastTab = null;
 const countText = (el, v) => el.dataset.money ? $$(v) : (el.dataset.pre || "") + Math.round(v) + (el.dataset.suf || "");
 function countUp(el) {
   const to = Number(el.dataset.count) || 0, t0 = performance.now(), dur = 900;
@@ -780,7 +864,7 @@ function render() {
   document.getElementById("logo").innerHTML = (state.settings.logo ? `<img class="ball" src="${esc(state.settings.logo)}" alt="">` : BALL) + esc(state.settings.app_name);
   document.getElementById("whoChip").innerHTML = `${av(m, "sm")}<b>${esc(m.name)}</b>${m.admin ? "🛡️" : ""}`;
   const scrollY = window.scrollY; const tabChanged = state.tab !== lastTab;
-  view.innerHTML = { games: gamesView, squad: squadView, alerts: alertsView, me: meView }[state.tab]();
+  view.innerHTML = { games: gamesView, squad: squadView, arcade: arcadeView, alerts: alertsView, me: meView }[state.tab]();
   if (tabChanged) {
     const dir = TABS.indexOf(state.tab) > TABS.indexOf(lastTab) ? "slide-l" : "slide-r";
     view.classList.remove("slide-l", "slide-r"); void view.offsetWidth; if (lastTab) view.classList.add(dir); window.scrollTo(0, 0);
@@ -790,7 +874,7 @@ function render() {
   const unread = state.notifs.filter((n) => n.id > state.lastSeen).length;
   const reqs = m.admin ? state.pending.length : 0;
   document.getElementById("navInd").style.transform = `translateX(${TABS.indexOf(state.tab) * 100}%)`;
-  document.getElementById("navBtns").innerHTML = [["games", "🏀", "Games"], ["squad", "🏆", "Squad"], ["alerts", "🔔", "Alerts"], ["me", "👤", "Me"]].map(([k, i, l]) =>
+  document.getElementById("navBtns").innerHTML = [["games", "🏀", "Games"], ["squad", "🏆", "Squad"], ["arcade", "🕹️", "Arcade"], ["alerts", "🔔", "Alerts"], ["me", "👤", "Me"]].map(([k, i, l]) =>
     `<button class="${state.tab === k ? "on" : ""}" data-act="tab" data-tab="${k}"><span class="i">${i}</span>${l}${k === "alerts" && unread && state.tab !== "alerts" ? `<span class="dot">${unread > 99 ? "99+" : unread}</span>` : ""}${k === "squad" && reqs ? `<span class="dot">${reqs}</span>` : ""}</button>`).join("");
   if (tabChanged && lastTab) document.querySelector("#navBtns .on .i")?.classList.add("bump");
   lastTab = state.tab;
@@ -835,7 +919,8 @@ function wireForms() {
 // ================= events =================
 document.addEventListener("click", async (e) => {
   if (e.target.id === "scrim") { state.open = null; render(); return; }
-  if (e.target.closest("a[href]")) return;   // links inside a card (calendar, maps) shouldn't also open the card
+  const lnk = e.target.closest("a[href]");
+  if (lnk) { if (lnk.getAttribute("href") === "#arcade") { e.preventDefault(); state.tab = "arcade"; state.open = null; render(); } return; }   // links inside a card shouldn't also open the card
   const t = e.target.closest("[data-act]"); if (!t) return; const a = t.dataset.act, id = t.dataset.id;
   const R = (fn, args, msg) => rpc(fn, args).then((r) => { if (!r.error && msg) toast(typeof msg === "function" ? msg(r.data) : msg); });
   const acts = {
@@ -844,6 +929,7 @@ document.addEventListener("click", async (e) => {
     paid: () => R("toggle_paid", { _eid: t.dataset.eid }), rmguest: () => R("remove_guest", { _eid: t.dataset.eid }, "Guest removed"),
     hype: () => { const s = S(id); if (!(s.hype[t.dataset.e] || []).includes(meId())) floatEmoji(t, t.dataset.e); lastLocalHype = Date.now(); R("toggle_hype", { _sid: id, _emoji: t.dataset.e }); },
     replaymvp: () => showMvpReveal(S(id)),
+    arcplay: () => arcPlay(t.dataset.g),
     remind: () => R("remind_unpaid", { _sid: id }, (n) => `⏰ Reminder sent to ${n} player${n === 1 ? "" : "s"}`),
     cancel: () => { if (t.dataset.sure) { state.open = null; R("cancel_game", { _sid: id }, "Game cancelled · everyone notified"); } else { t.dataset.sure = 1; t.textContent = "Tap again to cancel the game"; } },
     sendloc: () => R("send_location", { _sid: id }, (n) => `📍 Location sent to ${n} players`), spots: () => R("send_spots", { _sid: id }, "📢 Spots update sent"),
@@ -884,6 +970,7 @@ document.addEventListener("click", async (e) => {
   else if (a === "stake") state.stake = t.dataset.v;
   else if (a === "tstake") state.tstake = t.dataset.v;
   else if (a === "sort") state.sort = t.dataset.v;
+  else if (a === "arctab") state.arc.tab = t.dataset.v;
   else return;
   render();
 });
@@ -895,6 +982,7 @@ function openGame(id, toBets) {
   if (toBets) setTimeout(() => { const el = document.getElementById("betsAnchor"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 80);
 }
 function openFromHash() {
+  if (location.hash === "#arcade" && state.screen === "app") { history.replaceState(null, "", location.pathname + location.search); state.open = null; state.tab = "arcade"; render(); return; }
   const m = location.hash.match(/^#game-([0-9a-f-]{36})$/i); if (!m || state.screen !== "app") return;
   history.replaceState(null, "", location.pathname + location.search);
   const s = S(m[1]); openGame(m[1], !!s && (s.bets.some((b) => b.status === "pending") || s.teamBets.some((b) => b.status === "pending")));
@@ -906,7 +994,7 @@ navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.openHa
 (() => {
   const ptr = document.createElement("div"); ptr.id = "ptr"; ptr.innerHTML = `<div class="b">${MINI_BALL}</div>`; document.body.appendChild(ptr);
   let y0 = null, d = 0, busy = false;
-  window.addEventListener("touchstart", (e) => { y0 = (state.screen === "app" && !state.open && !busy && window.scrollY <= 0 && !document.querySelector(".ov")) ? e.touches[0].clientY : null; d = 0; }, { passive: true });
+  window.addEventListener("touchstart", (e) => { y0 = (state.screen === "app" && !state.open && !busy && window.scrollY <= 0 && !document.querySelector(".ov,#arcPlay")) ? e.touches[0].clientY : null; d = 0; }, { passive: true });
   window.addEventListener("touchmove", (e) => { if (y0 === null) return; d = Math.max(0, Math.min((e.touches[0].clientY - y0) * 0.5, 90));
     ptr.style.transition = "none"; ptr.style.opacity = Math.min(1, d / 45); ptr.style.transform = `translate(-50%, ${d}px) rotate(${d * 5}deg)`; }, { passive: true });
   window.addEventListener("touchend", async () => {

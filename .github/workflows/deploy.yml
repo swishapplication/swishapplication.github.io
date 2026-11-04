@@ -90,7 +90,7 @@ jobs:
       - name: Collect site files
         run: |
           mkdir _site
-          cp index.html app.js config.js style.css sw.js manifest.webmanifest _site/
+          cp index.html app.js arcade.js trivia-lb.js config.js style.css sw.js manifest.webmanifest _site/
           cp -r icons sounds splash _site/
           touch _site/.nojekyll
       - uses: actions/configure-pages@v5

@@ -22,6 +22,28 @@ const isStandalone = () => window.matchMedia("(display-mode: standalone)").match
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const ls = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 
+// ================= sound =================
+let actx = null;
+const soundOn = () => ls.get("sound") !== "off";
+function ensureAudio() {
+  try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume().catch(() => {}); } catch { actx = null; }
+  return actx;
+}
+// a short "swish": filtered noise sweeping up then down, like a ball ripping through the net
+function playSwish() {
+  if (!soundOn()) return; const ctx = ensureAudio(); if (!ctx || ctx.state !== "running") return;
+  const t = ctx.currentTime, len = 0.55, buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * len), ctx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 1.4;
+  bp.frequency.setValueAtTime(900, t); bp.frequency.exponentialRampToValueAtTime(5200, t + 0.12); bp.frequency.exponentialRampToValueAtTime(1800, t + 0.45);
+  const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 500;
+  const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.55, t + 0.04);
+  g.gain.exponentialRampToValueAtTime(0.18, t + 0.16); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  src.connect(bp).connect(hp).connect(g).connect(ctx.destination); src.start(t); src.stop(t + len);
+}
+document.addEventListener("pointerdown", ensureAudio, { once: true });
+
 // ================= state =================
 const state = {
   screen: "loading", user: null, profile: null, tab: "games", open: null, sort: "games",
@@ -140,8 +162,8 @@ async function rpc(fn, args) {
 // ================= actions =================
 async function join(id) {
   const { data, error } = await rpc("join_game", { _sid: id }); if (error) return;
-  if (data === "full") { confetti(); toast("🏀 You took the last spot. Squad is FULL!"); }
-  else if (data === "in") toast("✅ You're in! See you on court.");
+  if (data === "full") { playSwish(); confetti(); toast("🏀 You took the last spot. Squad is FULL!"); }
+  else if (data === "in") { playSwish(); toast("✅ You're in! See you on court."); }
   else if (String(data).startsWith("waitlist")) toast(`⏳ You're #${data.split(":")[1]} on the waitlist`);
 }
 async function leave(id) {
@@ -321,6 +343,7 @@ function meView() {
   <div class="toggle"><div>🔔 Push on this phone<small>${pushTxt}</small></div>${state.pushState === "on" ? '<span class="pill in">On</span>' : state.pushState === "off" || state.pushState === "unknown" ? '<button class="btn primary sm" data-act="push">Turn on</button>' : ""}</div>
   ${[["email", "✉️ Email", "Booking confirmations, spots & reminders"], ["push", "📲 Push", "Instant alerts on your phone"]].map(([k, l, dd]) =>
     `<div class="toggle"><div>${l}<small>${dd}</small></div><button class="sw ${m.prefs[k] !== false ? "on" : ""}" data-act="pref" data-k="${k}"></button></div>`).join("")}
+  <div class="toggle"><div>🔊 Sounds<small>Swish when the app opens and when you book</small></div><button class="sw ${soundOn() ? "on" : ""}" data-act="sound"></button></div>
   <div class="sec">Profile</div>
   <label class="f">Name</label><input id="pfName" value="${esc(m.name)}" maxlength="24">
   <label class="f">Phone (optional)</label><input id="pfPhone" value="${esc(m.phone || "")}" maxlength="30">
@@ -625,7 +648,7 @@ document.addEventListener("click", async (e) => {
     skill: () => R("set_skill", { _pid: t.dataset.pid, _skill: Number(t.dataset.v) }),
     admin: () => R("set_admin", { _pid: t.dataset.pid, _on: t.dataset.v === "1" }, t.dataset.v === "1" ? "🛡️ Now an admin" : "Admin rights removed"),
     remove: () => { if (t.dataset.sure) { state.open = null; R("remove_member", { _pid: t.dataset.pid }, "Removed from the squad"); } else { t.dataset.sure = 1; t.textContent = "Tap again to remove"; } },
-    pref: () => togglePref(t.dataset.k), push: () => enablePush(), saveprofile: () => saveProfile(),
+    pref: () => togglePref(t.dataset.k), sound: () => { ls.set("sound", soundOn() ? "off" : "on"); if (soundOn()) playSwish(); render(); }, push: () => enablePush(), saveprofile: () => saveProfile(),
     savesettings: () => R("update_settings", { _app_name: document.getElementById("appName").value, _logo: null, _pay_link: document.getElementById("payLink").value.trim() }, "✅ App settings saved"),
     resetlogo: () => R("update_settings", { _app_name: null, _logo: "", _pay_link: null }, "Logo reset"),
     logout: async () => { await sb.auth.signOut(); location.reload(); },
@@ -668,6 +691,8 @@ function confetti() {
 }
 
 // ================= boot =================
+setTimeout(() => { ensureAudio(); playSwish(); }, 700);   // plays if the phone allows sound on open
+setTimeout(() => document.getElementById("splash")?.remove(), 2200);
 async function onSession(session) {
   state.user = session?.user || null;
   if (!state.user) { state.screen = "login"; const { data } = await sb.from("settings").select("*").eq("id", 1).maybeSingle(); if (data) state.settings = data; applyBranding(); render(); return; }

@@ -61,7 +61,7 @@ async function sendEmail(app: string, to: string, n: any) {
 async function sendPush(n: any, subs: any[]) {
   for (const s of subs) {
     try {
-      await webpush.sendNotification(s.sub, JSON.stringify({ title: `${n.icon} ${n.title}`, body: n.body, url: n.link || APP_URL || "/" }));
+      await webpush.sendNotification(s.sub, JSON.stringify({ title: `${n.icon} ${n.title}`, body: n.body, url: n.session_id && APP_URL ? APP_URL + "#game-" + n.session_id : (n.link || APP_URL || "/") }));
     } catch (e: any) {
       if (e?.statusCode === 404 || e?.statusCode === 410) await sql`delete from public.push_subs where endpoint = ${s.endpoint}`;
       else console.error("push", e?.statusCode, e?.body ?? String(e));

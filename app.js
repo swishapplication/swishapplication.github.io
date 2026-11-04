@@ -76,6 +76,8 @@ const tName = (t) => t === "A" ? "🟠 Team A" : "🟢 Team B";
 const daysSince = (p) => p.lastPlayed ? Math.max(0, Math.round((today0() - p.lastPlayed) / DAY)) : null;
 const mapUrl = (s) => /^https?:\/\//i.test(s.address) ? s.address : "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(s.address);
 const myShare = (s, pid) => s.roster.filter((r) => (r.pid === pid && !r.coveredBy) || r.coveredBy === pid).length * each(s);
+// iPhone: a calendar file opens the built-in Calendar app. Android: Google Calendar (the default there).
+const calHref = (s) => isIOS() ? `${SUPABASE_URL}/functions/v1/ics?sid=${s.id}` : calUrl(s);
 function calUrl(s) {
   const [h, m] = s.time.split(":").map(Number); const st = new Date(s.date); st.setHours(h, m, 0, 0); const en = new Date(st.getTime() + 2 * 3600e3);
   const f = (d) => d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "T" + pad(d.getHours()) + pad(d.getMinutes()) + "00";
@@ -336,9 +338,12 @@ function alertsView() {
   let h = `<h2>Alerts</h2>`;
   if (!state.notifs.length) h += `<div class="empty">No alerts yet. They'll show up here and on your phone.</div>`;
   state.notifs.forEach((n) => {
-    const tap = n.sid ? ` data-act="opengame" data-id="${n.sid}" style="cursor:pointer"` : "";
-    h += `<div class="notif${n.sid ? " tap" : ""}"${tap}><div class="ic">${esc(n.icon)}</div><div style="flex:1"><b>${esc(n.title)}</b><p style="white-space:pre-line">${esc(n.body)}</p>${n.sid ? `<div class="go">View challenge →</div>` : ""}
-    ${n.link ? `<a href="${esc(n.link)}" target="_blank" rel="noopener" class="pill money" style="text-decoration:none;margin-top:8px">${esc(n.linkLabel || "Open")}</a>` : ""}
+    const isBet = /challeng|bet/i.test(n.title);
+    const tap = n.sid ? ` data-act="opengame" data-id="${n.sid}" data-bets="${isBet ? 1 : ""}" style="cursor:pointer"` : "";
+    const cal = n.link && n.link.includes("calendar.google.com") && n.sid && S(n.sid);
+    const href = cal ? calHref(S(n.sid)) : n.link;
+    h += `<div class="notif${n.sid ? " tap" : ""}"${tap}><div class="ic">${esc(n.icon)}</div><div style="flex:1"><b>${esc(n.title)}</b><p style="white-space:pre-line">${esc(n.body)}</p>${n.sid ? `<div class="go">${isBet ? "View challenge →" : "Open game →"}</div>` : ""}
+    ${n.link && (!n.link.includes("calendar.google.com") || cal) ? `<a href="${esc(href)}" ${cal && isIOS() ? "" : 'target="_blank" rel="noopener"'} class="pill money" style="text-decoration:none;margin-top:8px">${esc(n.linkLabel || "Open")}</a>` : ""}
     <div class="chan"><span>${fmtShort(n.time)} · ${hhmm(n.time)}</span></div></div></div>`;
   });
   return h;
@@ -449,7 +454,7 @@ function sessionSheet(s) {
   h += `<div class="row" style="gap:6px;margin-top:12px;flex-wrap:wrap">${statusPill(s)}<span class="pill money">Court ${$$(s.price)} · ${$$(each(s))} each now</span></div>
   <div class="hype">${["🔥", "🏀", "💪", "😤", "🐐"].map((e) => { const l = s.hype[e] || []; return `<button class="${l.includes(meId()) ? "on" : ""}" data-act="hype" data-id="${s.id}" data-e="${e}">${e} ${l.length || ""}</button>`; }).join("")}</div>
   <div style="margin-top:16px">`;
-  if (r) h += `<div class="grid2"><a class="btn ghost" href="${esc(calUrl(s))}" target="_blank" rel="noopener" style="text-decoration:none;text-align:center">📅 Add to calendar</a><button class="btn danger" data-act="leave" data-id="${s.id}">Drop out</button></div>`;
+  if (r) h += `<div class="grid2"><a class="btn ghost" href="${esc(calHref(s))}" ${isIOS() ? "" : 'target="_blank" rel="noopener"'} style="text-decoration:none;text-align:center">📅 Add to calendar</a><button class="btn danger" data-act="leave" data-id="${s.id}">Drop out</button></div>`;
   else if (w >= 0) h += `<button class="btn ghost" data-act="leave" data-id="${s.id}">Leave waitlist (you're #${w + 1})</button>`;
   else if (!open) h += `<button class="btn ghost" disabled style="opacity:.7">🔒 Booking opens ${fmtOpen(s)}</button>`;
   else if (full) h += `<button class="btn ghost" style="border-color:var(--blue);color:var(--blue)" data-act="join" data-id="${s.id}">Join waitlist (${s.waitlist.length} ahead)</button>`;
@@ -640,6 +645,7 @@ function wireForms() {
 // ================= events =================
 document.addEventListener("click", async (e) => {
   if (e.target.id === "scrim") { state.open = null; render(); return; }
+  if (e.target.closest("a[href]")) return;   // links inside a card (calendar, maps) shouldn't also open the card
   const t = e.target.closest("[data-act]"); if (!t) return; const a = t.dataset.act, id = t.dataset.id;
   const R = (fn, args, msg) => rpc(fn, args).then((r) => { if (!r.error && msg) toast(typeof msg === "function" ? msg(r.data) : msg); });
   const acts = {
@@ -674,7 +680,7 @@ document.addEventListener("click", async (e) => {
   };
   if (acts[a]) return acts[a]();
   if (a === "close") { closeSheet(); return; }
-  if (a === "opengame") { openGame(id, true); return; }
+  if (a === "opengame") { openGame(id, !!t.dataset.bets); return; }
   if (a === "tab") { state.tab = t.dataset.tab; state.open = null; window.scrollTo(0, 0); }
   else if (a === "open") { state.open = id; state.guestOpen = state.chOpen = state.tOpen = false; document.getElementById("sheet").scrollTop = 0; }
   else if (a === "player") { state.open = "player:" + t.dataset.pid; document.getElementById("sheet").scrollTop = 0; }
@@ -697,7 +703,8 @@ function openGame(id, toBets) {
 }
 function openFromHash() {
   const m = location.hash.match(/^#game-([0-9a-f-]{36})$/i); if (!m || state.screen !== "app") return;
-  history.replaceState(null, "", location.pathname + location.search); openGame(m[1], true);
+  history.replaceState(null, "", location.pathname + location.search);
+  const s = S(m[1]); openGame(m[1], !!s && (s.bets.some((b) => b.status === "pending") || s.teamBets.some((b) => b.status === "pending")));
 }
 window.addEventListener("hashchange", openFromHash);
 navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.openHash) { location.hash = e.data.openHash; } });

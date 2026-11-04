@@ -27,7 +27,7 @@ email_sent = 60
 token_verifications = 30
 
 [auth.email]
-enable_signup = true
+enabled = true
 double_confirm_changes = true
 enable_confirmations = false
 secure_password_change = false

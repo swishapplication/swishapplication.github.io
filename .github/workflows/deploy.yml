@@ -56,7 +56,7 @@ jobs:
       - name: Link Supabase project
         run: /tmp/run.sh supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
       - name: Update database
-        run: /tmp/run.sh supabase db push --password "$SUPABASE_DB_PASSWORD" --include-all --yes
+        run: /tmp/run.sh supabase db push --remote --password "$SUPABASE_DB_PASSWORD" --include-all --yes
       - name: Login email settings
         run: /tmp/run.sh supabase config push --project-ref "$PROJECT_REF" --yes
       - name: Notification sender settings

@@ -26,7 +26,7 @@ const ls = { get: (k) => { try { return localStorage.getItem(k); } catch { retur
 let actx = null;
 const soundOn = () => ls.get("sound") !== "off";
 function ensureAudio() {
-  try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume().catch(() => {}); } catch { actx = null; }
+  try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state !== "running") actx.resume().catch(() => {}); } catch { actx = null; }
   return actx;
 }
 // real recordings: sounds/swish.mp3 (ball through the net) and sounds/cheer.mp3 (crowd cheer)
@@ -39,7 +39,7 @@ function loadSound(name) {
 }
 function playSound(name, vol = 1) {
   if (!soundOn()) return; const ctx = ensureAudio(); if (!ctx) return;
-  loadSound(name).then((buf) => { if (!buf || ctx.state !== "running") return; const src = ctx.createBufferSource(), g = ctx.createGain(); g.gain.value = vol; src.buffer = buf; src.connect(g).connect(ctx.destination); src.start(); });
+  loadSound(name).then(async (buf) => { if (!buf) return; if (ctx.state !== "running") { try { await ctx.resume(); } catch {} } if (ctx.state !== "running") return; const src = ctx.createBufferSource(), g = ctx.createGain(); g.gain.value = vol; src.buffer = buf; src.connect(g).connect(ctx.destination); src.start(); });
 }
 // arena buzzer (generated): two rough, slightly detuned tones
 function playBuzzer() {
@@ -58,14 +58,12 @@ function loadSwish() {
     .then((b) => new Promise((res, rej) => ctx.decodeAudioData(b, res, rej))).then((buf) => (swishBuf = buf)).catch(() => (swishLoading = null));
   return swishLoading;
 }
-function playSwish() {
-  if (!soundOn()) return; const ctx = ensureAudio(); if (!ctx) return;
-  const go = () => { if (!swishBuf || ctx.state !== "running") return; const src = ctx.createBufferSource(); src.buffer = swishBuf; src.connect(ctx.destination); src.start(); };
-  if (swishBuf) go(); else loadSwish().then(go);
-}
+function playSwish() { playSound("swish"); }
 window.__sounds = { playSwish: () => playSwish(), playBuzzer: () => playBuzzer(), playCheer: () => playSound("cheer") };
-loadSwish();
-document.addEventListener("pointerdown", ensureAudio, { once: true });
+setTimeout(() => loadSound("swish"), 500);
+// iPhones put web audio to sleep after the app has been in the background: wake it on every tap
+["pointerdown", "touchend", "click"].forEach((ev) => document.addEventListener(ev, () => { if (!actx || actx.state !== "running") ensureAudio(); }, { passive: true }));
+document.addEventListener("visibilitychange", () => { if (!document.hidden && actx && actx.state !== "running") actx.resume().catch(() => {}); });
 
 // ================= state =================
 const state = {
@@ -228,7 +226,7 @@ async function addGuest(id) {
   const n = (document.getElementById("guestName")?.value || "").trim(); if (!n) { toast("Type your friend's name"); return; }
   state.guestOpen = false;
   const { data, error } = await rpc("add_guest", { _sid: id, _name: n }); if (error) return;
-  if (data === "full") confetti(); toast(`➕ ${n} is in as your guest`);
+  if (data === "full") { confetti(); setTimeout(() => playSound("cheer", 0.8), 200); } toast(`➕ ${n} is in as your guest`);
 }
 async function challenge(id) {
   const to = document.getElementById("chTarget")?.value; if (!to) return;

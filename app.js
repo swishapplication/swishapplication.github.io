@@ -29,19 +29,20 @@ function ensureAudio() {
   try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume().catch(() => {}); } catch { actx = null; }
   return actx;
 }
-// a short "swish": filtered noise sweeping up then down, like a ball ripping through the net
-function playSwish() {
-  if (!soundOn()) return; const ctx = ensureAudio(); if (!ctx || ctx.state !== "running") return;
-  const t = ctx.currentTime, len = 0.55, buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * len), ctx.sampleRate), d = buf.getChannelData(0);
-  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  const src = ctx.createBufferSource(); src.buffer = buf;
-  const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 1.4;
-  bp.frequency.setValueAtTime(900, t); bp.frequency.exponentialRampToValueAtTime(5200, t + 0.12); bp.frequency.exponentialRampToValueAtTime(1800, t + 0.45);
-  const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 500;
-  const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.55, t + 0.04);
-  g.gain.exponentialRampToValueAtTime(0.18, t + 0.16); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
-  src.connect(bp).connect(hp).connect(g).connect(ctx.destination); src.start(t); src.stop(t + len);
+// the swish: a real recording of a ball going through the net (sounds/swish.mp3)
+let swishBuf = null, swishLoading = null;
+function loadSwish() {
+  const ctx = ensureAudio(); if (!ctx || swishBuf) return Promise.resolve(swishBuf);
+  if (!swishLoading) swishLoading = fetch("sounds/swish.mp3").then((r) => r.arrayBuffer())
+    .then((b) => new Promise((res, rej) => ctx.decodeAudioData(b, res, rej))).then((buf) => (swishBuf = buf)).catch(() => (swishLoading = null));
+  return swishLoading;
 }
+function playSwish() {
+  if (!soundOn()) return; const ctx = ensureAudio(); if (!ctx) return;
+  const go = () => { if (!swishBuf || ctx.state !== "running") return; const src = ctx.createBufferSource(); src.buffer = swishBuf; src.connect(ctx.destination); src.start(); };
+  if (swishBuf) go(); else loadSwish().then(go);
+}
+loadSwish();
 document.addEventListener("pointerdown", ensureAudio, { once: true });
 
 // ================= state =================

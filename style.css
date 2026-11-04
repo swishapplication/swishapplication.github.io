@@ -197,3 +197,7 @@
   @keyframes spOut{to{opacity:0;visibility:hidden}}
   .sp-ball{clip-path:inset(-200px -50px -200px -50px)}
   @media (prefers-reduced-motion: reduce){#splash{display:none}}
+
+  .sheet{position:relative;overscroll-behavior:contain}
+  .sheet-x{position:sticky;top:0;float:right;margin:-2px -6px 0 0;width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--card2);color:var(--text);font-size:15px;font-weight:800;cursor:pointer;z-index:5}
+  .grab{cursor:pointer;padding:6px 0;margin:-2px auto 10px;background-clip:content-box;height:17px;width:60px}

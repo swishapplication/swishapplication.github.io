@@ -590,7 +590,7 @@ function render() {
     const sh = document.getElementById("sheet"); const top = sh.scrollTop;
     const html = state.open === "new" ? newSheet() : state.open === "rules" ? rulesSheet() : state.open.startsWith("player:") ? playerSheet(state.open.slice(7)) : S(state.open) ? sessionSheet(S(state.open)) : null;
     if (html === null) { state.open = null; sc.classList.remove("show"); return; }
-    sh.innerHTML = html; sc.classList.add("show"); sh.scrollTop = top;
+    sh.innerHTML = `<button class="sheet-x" data-act="close" aria-label="Close">✕</button>` + html; sc.classList.add("show"); sh.scrollTop = top;
   } else sc.classList.remove("show");
   wireForms();
 }
@@ -658,6 +658,7 @@ document.addEventListener("click", async (e) => {
     hideinstall: () => { ls.set("hideInstall", "1"); render(); },
   };
   if (acts[a]) return acts[a]();
+  if (a === "close") { closeSheet(); return; }
   if (a === "tab") { state.tab = t.dataset.tab; state.open = null; window.scrollTo(0, 0); }
   else if (a === "open") { state.open = id; state.guestOpen = state.chOpen = state.tOpen = false; document.getElementById("sheet").scrollTop = 0; }
   else if (a === "player") { state.open = "player:" + t.dataset.pid; document.getElementById("sheet").scrollTop = 0; }
@@ -671,6 +672,35 @@ document.addEventListener("click", async (e) => {
   else return;
   render();
 });
+// ---------- bottom sheet: swipe down (or tap the handle / ✕ / outside) to close ----------
+function closeSheet() {
+  const sh = document.getElementById("sheet");
+  sh.style.transition = "transform .22s ease-in"; sh.style.transform = "translateY(100%)";
+  setTimeout(() => { sh.style.transition = ""; sh.style.transform = ""; state.open = null; render(); }, 210);
+}
+(() => {
+  const sh = document.getElementById("sheet"); let y0 = null, dy = 0, t0 = 0, dragging = false;
+  sh.addEventListener("touchstart", (e) => {
+    const onHandle = e.target.closest(".grab");
+    if (sh.scrollTop > 0 && !onHandle) { y0 = null; return; }
+    y0 = e.touches[0].clientY; dy = 0; t0 = Date.now(); dragging = false;
+  }, { passive: true });
+  sh.addEventListener("touchmove", (e) => {
+    if (y0 === null) return; dy = e.touches[0].clientY - y0;
+    if (dy > 8 && (sh.scrollTop <= 0 || dragging)) { dragging = true; e.preventDefault(); sh.style.transition = "none"; sh.style.transform = `translateY(${dy}px)`; }
+    else if (!dragging && dy < 0) y0 = null;
+  }, { passive: false });
+  sh.addEventListener("touchend", () => {
+    if (y0 === null) return; y0 = null; if (!dragging) return;
+    const fast = dy / Math.max(Date.now() - t0, 1) > 0.6;
+    if (dy > 110 || (fast && dy > 40)) closeSheet();
+    else { sh.style.transition = "transform .2s ease-out"; sh.style.transform = ""; setTimeout(() => (sh.style.transition = ""), 200); }
+    dragging = false;
+  });
+  document.addEventListener("click", (e) => { if (e.target.closest(".grab") && state.open) closeSheet(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && state.open) closeSheet(); });
+})();
+
 document.addEventListener("input", (e) => { const f = e.target.dataset.field; if (f === "stakeCustom" || f === "tstakeCustom") state[f] = e.target.value; });
 document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.id === "guestName") { e.preventDefault(); addGuest(state.open); } });
 document.addEventListener("change", (e) => {

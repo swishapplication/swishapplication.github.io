@@ -39,16 +39,30 @@ jobs:
             if [ -z "${!v}" ]; then echo "::error::Missing GitHub secret $v"; exit 1; fi
           done
           if [ -z "${{ secrets.BREVO_API_KEY }}" ]; then echo "::error::Missing GitHub secret BREVO_API_KEY"; exit 1; fi
+      - name: Error reporter
+        run: |
+          cat > /tmp/run.sh <<'SH'
+          #!/usr/bin/env bash
+          # runs a command; on failure shows its last lines as a visible error
+          out=$("$@" 2>&1); code=$?
+          echo "$out"
+          if [ $code -ne 0 ]; then
+            msg=$(echo "$out" | grep -v '^\s*$' | tail -n 25 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=$1 $2 failed::$msg"
+          fi
+          exit $code
+          SH
+          chmod +x /tmp/run.sh
       - name: Link Supabase project
-        run: supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+        run: /tmp/run.sh supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
       - name: Update database
-        run: supabase db push --password "$SUPABASE_DB_PASSWORD" --include-all
+        run: /tmp/run.sh supabase db push --password "$SUPABASE_DB_PASSWORD" --include-all --yes
       - name: Login email settings
-        run: yes | supabase config push --project-ref "$PROJECT_REF"
+        run: /tmp/run.sh supabase config push --project-ref "$PROJECT_REF" --yes
       - name: Notification sender settings
-        run: supabase secrets set --project-ref "$PROJECT_REF" BREVO_API_KEY="${{ secrets.BREVO_API_KEY }}" SENDER_EMAIL="$SENDER_EMAIL" APP_URL="$APP_URL"
+        run: /tmp/run.sh supabase secrets set --project-ref "$PROJECT_REF" BREVO_API_KEY="${{ secrets.BREVO_API_KEY }}" SENDER_EMAIL="$SENDER_EMAIL" APP_URL="$APP_URL"
       - name: Deploy notification sender
-        run: supabase functions deploy dispatch --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
+        run: /tmp/run.sh supabase functions deploy dispatch --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
       - name: Start notification sender
         run: |
           code=$(curl -s -o /tmp/out.json -w "%{http_code}" -X POST "https://$PROJECT_REF.supabase.co/functions/v1/dispatch" -H 'content-type: application/json' -d '{}')

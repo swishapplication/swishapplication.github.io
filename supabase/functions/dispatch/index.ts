@@ -58,10 +58,17 @@ async function sendEmail(app: string, to: string, n: any) {
   if (!r.ok) console.error("brevo", r.status, await r.text());
 }
 
+// phone notifications: bold title + ONE short line of detail (full text stays in the app's Alerts tab)
+function oneLine(body: string, max = 60) {
+  let t = String(body ?? "").replace(/🟠 Team A:/g, "A:").replace(/🟢 Team B:/g, "B:").replace(/\s*\n+\s*/g, " · ").replace(/\s+/g, " ").trim();
+  if ([...t].length > max) t = [...t].slice(0, max - 1).join("").replace(/[\s·,.;:]+$/, "") + "…";
+  return t;
+}
+
 async function sendPush(n: any, subs: any[]) {
   for (const s of subs) {
     try {
-      await webpush.sendNotification(s.sub, JSON.stringify({ title: `${n.icon} ${n.title}`, body: n.body, url: n.session_id && APP_URL ? APP_URL + "#game-" + n.session_id : (n.link || APP_URL || "/") }));
+      await webpush.sendNotification(s.sub, JSON.stringify({ title: `${n.icon} ${n.title}`, body: oneLine(n.body), url: n.session_id && APP_URL ? APP_URL + "#game-" + n.session_id : (n.link || APP_URL || "/") }));
     } catch (e: any) {
       if (e?.statusCode === 404 || e?.statusCode === 410) await sql`delete from public.push_subs where endpoint = ${s.endpoint}`;
       else console.error("push", e?.statusCode, e?.body ?? String(e));

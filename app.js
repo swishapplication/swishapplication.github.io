@@ -49,7 +49,7 @@ document.addEventListener("pointerdown", ensureAudio, { once: true });
 const state = {
   screen: "loading", user: null, profile: null, tab: "games", open: null, sort: "games",
   settings: { app_name: "Swish", logo: null, pay_link: "", currency: "$" },
-  players: [], pending: [], rules: [], sessions: [], notifs: [], credits: [], debts: [],
+  players: [], pending: [], badges: {}, rules: [], sessions: [], notifs: [], credits: [], debts: [],
   guestOpen: false, chOpen: false, tOpen: false, stake: "game", tstake: "dinner", chTarget: null, stakeCustom: "", tstakeCustom: "",
   loginEmail: "", codeSent: false, busy: false, pushState: "unknown", installEvt: null, lastSeen: Number(ls.get("lastSeenNotif") || 0),
 };
@@ -109,6 +109,8 @@ async function loadAll() {
     sb.from("credits").select("*").eq("used", false),
     sb.from("debts").select("*").eq("settled", false),
   ]);
+  const { data: bdg } = await sb.rpc("get_badges");
+  state.badges = {}; (bdg || []).forEach((r) => (state.badges[r.player_id] = [...(state.badges[r.player_id] || []), r.badge]));
   const toP = (p) => ({ id: p.id, name: p.name || (p.email || "").split("@")[0], email: p.email, phone: p.phone, color: p.color, admin: p.is_admin, status: p.status,
     prefs: p.prefs || {}, skill: p.skill, games: p.games, wins: p.wins, mvps: p.mvps, spent: Number(p.spent), lastPlayed: p.last_played ? parseDate(p.last_played) : null });
   const all = (profiles.data || []).map(toP);
@@ -143,7 +145,15 @@ async function loadAll() {
 }
 
 let reloadTimer = null;
-function scheduleReload() { clearTimeout(reloadTimer); reloadTimer = setTimeout(async () => { await loadAll(); render(); }, 350); }
+function scheduleReload() {
+  clearTimeout(reloadTimer);
+  reloadTimer = setTimeout(async () => {
+    const os = state.open && S(state.open); const before = os ? Object.fromEntries(Object.entries(os.hype).map(([k, v]) => [k, v.length])) : null; const openId = state.open;
+    await loadAll(); render(); celebrate();
+    const ns = state.open === openId && S(openId);
+    if (ns && before && Date.now() - lastLocalHype > 2500) Object.entries(ns.hype).forEach(([e, v]) => { if (v.length > (before[e] || 0)) floatEmoji(document.querySelector(`#sheet [data-act=hype][data-e="${e}"]`), e, 5); });
+  }, 350);
+}
 let channel = null;
 function subscribe() {
   if (channel) return;
@@ -157,7 +167,7 @@ async function rpc(fn, args) {
   try {
     const { data, error } = await sb.rpc(fn, args || {});
     if (error) { toast("⚠️ " + error.message.replace(/^.*?ERROR:\s*/, "")); return { error }; }
-    await loadAll(); render(); kickDispatch();
+    await loadAll(); render(); kickDispatch(); setTimeout(celebrate, 600);
     return { data };
   } finally { state.busy = false; document.body.classList.remove("busy"); }
 }
@@ -268,12 +278,104 @@ function pushCard() {
   return `<div class="teaser push"><span>🔔</span><div style="flex:1"><b>Turn on notifications</b><br>So you know the second booking opens, a spot frees up, or someone challenges you.
     <div style="margin-top:10px"><button class="btn primary sm" data-act="push">Turn on</button></div></div></div>`;
 }
+// ================= countdown hero =================
+const gameStart = (s) => { const [hh, mm] = s.time.split(":").map(Number); const d = new Date(s.date); d.setHours(hh, mm, 0, 0); return d; };
+const fmtCount = (ms) => { ms = Math.max(0, ms); const t = Math.floor(ms / 1000), d = Math.floor(t / 86400), h = Math.floor((t % 86400) / 3600), mi = Math.floor((t % 3600) / 60), se = t % 60;
+  return (d ? `${d}d ` : "") + pad(h) + ":" + pad(mi) + ":" + pad(se); };
+const cdSpan = (target) => `<div class="cd" data-cd="${target.getTime()}">${fmtCount(target - Date.now())}</div>`;
+const heroBall = `<svg class="bg" viewBox="0 0 40 40"><g fill="none" stroke="#000" stroke-width="2"><circle cx="20" cy="20" r="18"/><path d="M2 20h36M20 2v36M7 7c7 6 7 20 0 26M33 7c-7 6-7 20 0 26"/></g></svg>`;
+function heroCard(m, ups, mine) {
+  const now = Date.now(), ds = daysSince(m);
+  const stats = `<div class="stat"><div><b>${m.games}</b><span>games</span></div><div><b>${m.wins}</b><span>wins</span></div><div><b>${m.mvps}🐐</b><span>MVPs</span></div><div><b>${ds === null ? "–" : ds + "d"}</b><span>since last game</span></div></div>`;
+  const live = mine.find((s) => now >= gameStart(s) && now < gameStart(s).getTime() + 2 * 3600e3);
+  if (live) return `<div class="hero live" data-act="open" data-id="${live.id}">${heroBall}<div class="tag"><i class="dot"></i> LIVE NOW</div><h3>Game on at ${esc(live.court)} 🔥</h3><p>Ball out! Tap for teams and bets.</p>${stats}</div>`;
+  const nxt = mine.find((s) => gameStart(s) > now);
+  if (nxt) {
+    const st = gameStart(nxt);
+    if (st.toDateString() === new Date().toDateString())
+      return `<div class="hero gameday" data-act="open" data-id="${nxt.id}"><div class="flames">🔥🔥🔥</div><div class="tag">GAME DAY</div><h3>${fmtTime(nxt.time)} · ${esc(nxt.court)}</h3><div class="cdwrap"><small>Tip-off in</small>${cdSpan(st)}</div>${stats}</div>`;
+    return `<div class="hero" data-act="open" data-id="${nxt.id}">${heroBall}<div class="tag">Next up · ${fmtShort(nxt.date)}, ${fmtTime(nxt.time)}</div><h3>${esc(nxt.court)}</h3><div class="cdwrap"><small>Tip-off in</small>${cdSpan(st)}</div>${stats}</div>`;
+  }
+  const open = ups.find((s) => isOpen(s) && s.roster.length < s.capacity && inWait(s, meId()) < 0 && gameStart(s) > now);
+  if (open) { const left = open.capacity - open.roster.length;
+    return `<div class="hero" data-act="open" data-id="${open.id}">${heroBall}<div class="tag">Spots open · ${left} left</div><h3>${fmtShort(open.date)}, ${fmtTime(open.time)} · ${esc(open.court)}</h3><div class="cdwrap"><small>Tip-off in</small>${cdSpan(gameStart(open))}</div>
+      <button class="btn dark sm" style="margin-top:12px" data-act="open" data-id="${open.id}">🏀 Book my spot</button>${stats}</div>`; }
+  const lock = ups.filter((s) => !isOpen(s)).sort((a, b) => a.opensAt - b.opensAt)[0];
+  if (lock) return `<div class="hero">${heroBall}<div class="tag">Next ${DOW[lock.date.getDay()]} game · ${fmtShort(lock.date)}, ${fmtTime(lock.time)}</div><h3>Booking opens in</h3>${cdSpan(lock.opensAt)}<p style="margin-top:4px">Be quick. First come, first served ⚡</p>${stats}</div>`;
+  return `<div class="hero">${heroBall}<h3>Hey ${esc(m.name)}, lace up! 👟</h3><p>No games posted yet.</p>${stats}</div>`;
+}
+let lastCdRender = 0;
+setInterval(() => {
+  document.querySelectorAll("[data-cd]").forEach((el) => {
+    const ms = Number(el.dataset.cd) - Date.now(); el.textContent = fmtCount(ms);
+    if (ms <= 0 && Date.now() - lastCdRender > 5000 && state.screen === "app" && !state.open) { lastCdRender = Date.now(); scheduleReload(); }
+  });
+}, 1000);
+
+// ================= badges =================
+const BADGES = {
+  early: { e: "⚡", n: "Early Bird", d: "Booked a weekly game within a minute of booking opening" },
+  iron: { e: "🧱", n: "Iron Man", d: "Played 5 games in a row" },
+  shark: { e: "🦈", n: "Bet Shark", d: "Won 3 bets" },
+  clutch: { e: "🏆", n: "Clutch", d: "Won MVP twice" },
+  ghost: { e: "👻", n: "Ghost", d: "Hasn't played for 30+ days. Play a game to shake it off!" },
+};
+const badgesOf = (pid) => state.badges[pid] || [];
+
+// ================= celebration overlays (badge unlocks, MVP reveal) =================
+const ovQueue = []; let ovShowing = false;
+function queueOverlay(html, after) { ovQueue.push({ html, after }); if (!ovShowing) nextOverlay(); }
+function nextOverlay() {
+  const it = ovQueue.shift(); if (!it) { ovShowing = false; return; } ovShowing = true;
+  const el = document.createElement("div"); el.className = "ov"; el.innerHTML = `<div class="ov-card">${it.html}</div>`;
+  el.addEventListener("click", (e) => { if (e.target === el || e.target.closest("[data-ov-close]")) { el.classList.add("out"); setTimeout(() => { el.remove(); nextOverlay(); }, 220); } });
+  document.body.appendChild(el); if (it.after) it.after(el);
+}
+function checkUnlocks() {
+  const uid = meId(); if (!uid) return; const key = "seenBadges:" + uid; const mine = badgesOf(uid);
+  let seen; try { seen = JSON.parse(ls.get(key) || "[]"); } catch { seen = []; }
+  mine.filter((b) => !seen.includes(b)).forEach((b) => {
+    const B = BADGES[b]; if (!B) return; const ghost = b === "ghost";
+    queueOverlay(`<div class="burst"></div><div class="badge-big">${B.e}</div><div class="ov-k">${ghost ? "Uh oh…" : "Badge unlocked"}</div><h2>${B.n}</h2><p>${B.d}</p><button class="btn primary" data-ov-close>${ghost ? "I'll be back 😤" : "Let's go 🔥"}</button>`,
+      () => { if (!ghost) { confetti(); playSwish(); } });
+  });
+  ls.set(key, JSON.stringify(mine));
+}
+function mvpRevealHtml(s) {
+  const tally = {}; Object.values(s.mvpVotes).forEach((t) => (tally[t] = (tally[t] || 0) + 1));
+  const top = Object.entries(tally).sort((a, b) => b[1] - a[1] || (a[0] === s.mvp ? -1 : b[0] === s.mvp ? 1 : 0)).slice(0, 3);
+  if (!top.length || top[0][0] !== s.mvp) { top.unshift([s.mvp, tally[s.mvp] || 0]); top.length = Math.min(top.length, 3); }
+  const col = (i) => { const t = top[i]; if (!t) return `<div class="pod empty"></div>`; const p = P(t[0]);
+    return `<div class="pod p${i + 1}"><div class="pod-who">${av(p, i === 0 ? "lg" : "")}<b>${esc(p.name)}</b><small>${t[1]} vote${t[1] === 1 ? "" : "s"}</small></div><div class="pod-block">${["🥇", "🥈", "🥉"][i]}</div></div>`; };
+  return `<div class="ov-k">MVP of ${fmtShort(s.date)}</div><h2 style="margin-bottom:14px">And the GOAT is…</h2>
+    <div class="podium">${col(1)}${col(0)}${col(2)}</div><div class="winner-name">🐐 ${esc(P(s.mvp).name)}</div><button class="btn primary" style="margin-top:14px" data-ov-close>Respect 🙌</button>`;
+}
+function showMvpReveal(s) { queueOverlay(mvpRevealHtml(s), () => setTimeout(() => { confetti(); playSwish(); }, 1700)); }
+function checkMvpReveals() {
+  let seen; try { seen = JSON.parse(ls.get("seenMvp") || "[]"); } catch { seen = []; }
+  const fresh = recent().filter((s) => s.mvp && s.mvpClosed && !seen.includes(s.id) && Date.now() - s.date.getTime() < 14 * 864e5);
+  fresh.reverse().forEach((s) => { showMvpReveal(s); seen.push(s.id); });
+  ls.set("seenMvp", JSON.stringify(seen.slice(-50)));
+}
+let celebrated = false;
+function celebrate() { if (state.screen !== "app") return; checkUnlocks(); checkMvpReveals(); }
+
+// ================= floating reactions =================
+let lastLocalHype = 0;
+function floatEmoji(el, emoji, n = 7) {
+  if (!el) return; const r = el.getBoundingClientRect();
+  for (let i = 0; i < n; i++) {
+    const f = document.createElement("span"); f.className = "fl"; f.textContent = emoji;
+    f.style.left = r.left + r.width / 2 + (Math.random() * 16 - 8) + "px"; f.style.top = r.top + "px";
+    f.style.setProperty("--dx", Math.random() * 90 - 45 + "px"); f.style.setProperty("--dy", -(140 + Math.random() * 120) + "px");
+    f.style.setProperty("--rot", Math.random() * 60 - 30 + "deg"); f.style.animationDelay = i * 70 + "ms"; f.style.fontSize = 18 + Math.random() * 14 + "px";
+    document.body.appendChild(f); setTimeout(() => f.remove(), 1900);
+  }
+}
+
 function gamesView() {
   const m = me(); const ups = upcoming(); const mine = ups.filter((s) => entryOf(s, meId())); const nxt = mine[0]; const ds = daysSince(m);
-  let h = `<div class="hero"><svg class="bg" viewBox="0 0 40 40"><g fill="none" stroke="#000" stroke-width="2"><circle cx="20" cy="20" r="18"/><path d="M2 20h36M20 2v36M7 7c7 6 7 20 0 26M33 7c-7 6-7 20 0 26"/></g></svg>
-    <h3>${nxt ? `Next up: ${fmtShort(nxt.date)}, ${fmtTime(nxt.time)}` : `Hey ${esc(m.name)}, lace up! 👟`}</h3>
-    <p>${nxt ? esc(nxt.court) : "You're not booked for any upcoming game yet."}</p>
-    <div class="stat"><div><b>${m.games}</b><span>games</span></div><div><b>${m.wins}</b><span>wins</span></div><div><b>${m.mvps}🐐</b><span>MVPs</span></div><div><b>${ds === null ? "–" : ds + "d"}</b><span>since last game</span></div></div></div>`;
+  let h = heroCard(m, ups, mine);
   h += installCard();
   h += pushCard();
   state.credits.filter((c) => c.winner === meId() && !c.used).forEach((c) => h += `<div class="gift"><span>🎁</span><div><b>Your next game is free!</b><br>${esc(P(c.loser).name)} lost a bet and pays your next spot.</div></div>`);
@@ -323,7 +425,7 @@ function squadView() {
   h += `<div class="seg" style="margin-bottom:12px">${[["games", "Games"], ["wins", "Wins"], ["mvps", "🐐 MVPs"], ["away", "😴 Away"]].map(([k, l]) => `<button class="${state.sort === k ? "on" : ""}" data-act="sort" data-v="${k}">${l}</button>`).join("")}</div>`;
   if (state.sort === "away") h += `<div class="sub">Days since each player's last game${m.admin ? ". Nudge the ones you miss 👋" : ""}</div>`;
   ranked.forEach((p, i) => {
-    const d = daysSince(p); const b = []; if (state.sort !== "away" && i === 0 && key(p) > 0) b.push("👑"); if (p.mvps) b.push("🐐".repeat(Math.min(p.mvps, 3))); if (p.admin) b.push("🛡️"); if (p.games >= 20) b.push("💯");
+    const d = daysSince(p); const b = []; if (state.sort !== "away" && i === 0 && key(p) > 0) b.push("👑"); if (p.mvps) b.push("🐐".repeat(Math.min(p.mvps, 3))); if (p.admin) b.push("🛡️"); if (p.games >= 20) b.push("💯"); badgesOf(p.id).forEach((k) => BADGES[k] && b.push(BADGES[k].e));
     const stat = { games: `${p.games} games`, wins: `${p.wins} wins · ${p.games ? Math.round((p.wins / p.games) * 100) : 0}% win rate`, mvps: `${p.mvps} MVP award${p.mvps === 1 ? "" : "s"}`, away: d === null ? "No games yet" : `Last game ${d === 0 ? "today" : d === 1 ? "yesterday" : d + " days ago"}` }[state.sort];
     h += `<div class="lb ${state.sort !== "away" && i === 0 && key(p) > 0 ? "top1" : ""}" ${m.admin ? `data-act="player" data-pid="${p.id}" style="cursor:pointer"` : ""}><div class="rk">${state.sort === "away" ? "" : i + 1}</div>${av(p)}<div style="flex:1;min-width:0"><div style="font-weight:800">${esc(p.name)}${p.id === meId() ? " (you)" : ""} <span class="badges">${b.join("")}</span></div>
     <div style="color:var(--muted);font-size:12px;font-weight:600">${stat}</div></div>
@@ -357,6 +459,9 @@ function meView() {
   <div class="stats">
     <div><b>${m.games}</b><span>Games played</span></div><div><b>${m.wins}</b><span>Wins</span></div><div><b>${wr}%</b><span>Win rate</span></div>
     <div><b>${m.mvps}🐐</b><span>MVP awards</span></div><div><b>${$$(m.spent)}</b><span>Spent on courts</span></div><div><b>${d === null ? "–" : d + "d"}</b><span>Since last game</span></div></div>
+  <div class="sec">🏅 Badges</div>
+  <div class="badges-grid">${Object.entries(BADGES).map(([k, B]) => { const has = badgesOf(meId()).includes(k);
+    return `<div class="bdg ${has ? "on" : ""} ${k}"><div class="e">${B.e}</div><b>${B.n}</b><small>${has ? (k === "ghost" ? "Active, go play!" : "Unlocked") : B.d}</small></div>`; }).join("")}</div>
   <div class="sec">Notifications</div>
   <div class="toggle"><div>🔔 Push on this phone<small>${pushTxt}</small></div>${state.pushState === "on" ? '<span class="pill in">On</span>' : state.pushState === "off" || state.pushState === "unknown" ? '<button class="btn primary sm" data-act="push">Turn on</button>' : ""}</div>
   ${[["push", "📲 Push", "Instant alerts on your phone"]].map(([k, l, dd]) =>
@@ -438,6 +543,7 @@ function sessionSheet(s) {
     const voters = [...new Set(s.roster.filter((x) => !x.guest).map((x) => x.pid))]; const tally = {}; Object.values(s.mvpVotes).forEach((t) => (tally[t] = (tally[t] || 0) + 1));
     h += `<div class="sec">🐐 MVP</div>`;
     if (s.mvp) h += `<div class="mvp">${av(P(s.mvp), "lg")}<div><div style="font-family:'Archivo Black',system-ui,sans-serif;font-size:20px">${esc(P(s.mvp).name)}</div><div style="color:#1a0b02;font-weight:700;font-size:13px">MVP · ${tally[s.mvp] || 0} vote${tally[s.mvp] === 1 ? "" : "s"}</div></div><div style="font-size:40px;margin-left:auto">🐐</div></div>`;
+    if (s.mvp) h += `<button class="btn ghost sm" style="margin-top:8px;width:100%" data-act="replaymvp" data-id="${s.id}">🎬 Replay the MVP reveal</button>`;
     else if (s.mvpClosed) h += `<div class="empty">No MVP this time.</div>`;
     else {
       const myVote = s.mvpVotes[meId()];
@@ -652,7 +758,8 @@ document.addEventListener("click", async (e) => {
     join: () => join(id), leave: () => leave(id), addguest: () => addGuest(id), challenge: () => challenge(id), tchallenge: () => teamChallenge(id),
     pay: () => R("set_pay", { _sid: id, _how: t.dataset.v }, t.dataset.v === "prepaid" ? "💸 Admin notified to confirm your payment" : null),
     paid: () => R("toggle_paid", { _eid: t.dataset.eid }), rmguest: () => R("remove_guest", { _eid: t.dataset.eid }, "Guest removed"),
-    hype: () => R("toggle_hype", { _sid: id, _emoji: t.dataset.e }),
+    hype: () => { const s = S(id); if (!(s.hype[t.dataset.e] || []).includes(meId())) floatEmoji(t, t.dataset.e); lastLocalHype = Date.now(); R("toggle_hype", { _sid: id, _emoji: t.dataset.e }); },
+    replaymvp: () => showMvpReveal(S(id)),
     remind: () => R("remind_unpaid", { _sid: id }, (n) => `⏰ Reminder sent to ${n} player${n === 1 ? "" : "s"}`),
     cancel: () => { if (t.dataset.sure) { state.open = null; R("cancel_game", { _sid: id }, "Game cancelled · everyone notified"); } else { t.dataset.sure = 1; t.textContent = "Tap again to cancel the game"; } },
     sendloc: () => R("send_location", { _sid: id }, (n) => `📍 Location sent to ${n} players`), spots: () => R("send_spots", { _sid: id }, "📢 Spots update sent"),
@@ -764,6 +871,7 @@ async function onSession(session) {
   state.user = session?.user || null;
   if (!state.user) { state.screen = "login"; const { data } = await sb.from("settings").select("*").eq("id", 1).maybeSingle(); if (data) state.settings = data; applyBranding(); render(); return; }
   await loadAll(); subscribe(); await checkPush(); render(); openFromHash();
+  setTimeout(celebrate, 2300);
 }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 render();

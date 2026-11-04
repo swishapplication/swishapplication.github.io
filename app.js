@@ -256,6 +256,16 @@ function installCard() {
   return `<div class="teaser"><span>📲</span><div style="flex:1"><b>Add ${esc(state.settings.app_name)} to your home screen</b><br>${how}
     ${state.installEvt ? `<div style="margin-top:8px"><button class="btn orange sm" data-act="install">Install</button></div>` : ""}</div><button class="btn ghost sm" data-act="hideinstall">✕</button></div>`;
 }
+// reminder for players who haven't turned on push yet (alerts are push-only)
+function pushCard() {
+  if (state.pushState === "on" || state.pushState === "unsupported" || state.pushState === "needs-install") return "";
+  if (state.pushState === "denied") {
+    if (ls.get("hidePushDenied")) return "";
+    return `<div class="teaser push"><span>🔕</span><div style="flex:1"><b>Notifications are blocked</b><br>You'll miss bookings opening and challenges. Allow notifications for ${esc(state.settings.app_name)} in your phone's Settings, then reopen the app.</div><button class="btn ghost sm" data-act="hidepushdenied">✕</button></div>`;
+  }
+  return `<div class="teaser push"><span>🔔</span><div style="flex:1"><b>Turn on notifications</b><br>So you know the second booking opens, a spot frees up, or someone challenges you.
+    <div style="margin-top:10px"><button class="btn primary sm" data-act="push">Turn on</button></div></div></div>`;
+}
 function gamesView() {
   const m = me(); const ups = upcoming(); const mine = ups.filter((s) => entryOf(s, meId())); const nxt = mine[0]; const ds = daysSince(m);
   let h = `<div class="hero"><svg class="bg" viewBox="0 0 40 40"><g fill="none" stroke="#000" stroke-width="2"><circle cx="20" cy="20" r="18"/><path d="M2 20h36M20 2v36M7 7c7 6 7 20 0 26M33 7c-7 6-7 20 0 26"/></g></svg>
@@ -263,6 +273,7 @@ function gamesView() {
     <p>${nxt ? esc(nxt.court) : "You're not booked for any upcoming game yet."}</p>
     <div class="stat"><div><b>${m.games}</b><span>games</span></div><div><b>${m.wins}</b><span>wins</span></div><div><b>${m.mvps}🐐</b><span>MVPs</span></div><div><b>${ds === null ? "–" : ds + "d"}</b><span>since last game</span></div></div></div>`;
   h += installCard();
+  h += pushCard();
   state.credits.filter((c) => c.winner === meId() && !c.used).forEach((c) => h += `<div class="gift"><span>🎁</span><div><b>Your next game is free!</b><br>${esc(P(c.loser).name)} lost a bet and pays your next spot.</div></div>`);
   state.credits.filter((c) => c.loser === meId() && !c.used).forEach((c) => h += `<div class="gift owe"><span>💸</span><div><b>You owe ${esc(P(c.winner).name)} a game</b><br>You'll cover their spot the next time they book.</div></div>`);
   state.debts.filter((d) => d.to.includes(meId()) || d.from.includes(meId())).forEach((d) => {
@@ -659,6 +670,7 @@ document.addEventListener("click", async (e) => {
     backemail: () => { state.codeSent = false; render(); },
     install: async () => { if (state.installEvt) { state.installEvt.prompt(); state.installEvt = null; render(); } },
     hideinstall: () => { ls.set("hideInstall", "1"); render(); },
+    hidepushdenied: () => { ls.set("hidePushDenied", "1"); render(); },
   };
   if (acts[a]) return acts[a]();
   if (a === "close") { closeSheet(); return; }

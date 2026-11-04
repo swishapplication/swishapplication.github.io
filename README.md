@@ -1,4 +1,4 @@
-# 🏀 Hoop Squad
+# 🏀 Swish
 
 A free app for booking our weekly basketball games: open it from the link, add it to your home screen, log in with your email.
 

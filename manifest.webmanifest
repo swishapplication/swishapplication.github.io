@@ -1,10 +1,10 @@
 {
-  "name": "Hoop Squad",
-  "short_name": "Hoop Squad",
+  "name": "Swish",
+  "short_name": "Swish",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0e0f13",
+  "background_color": "#ff6b1a",
   "theme_color": "#0e0f13",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },

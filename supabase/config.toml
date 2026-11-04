@@ -42,14 +42,14 @@ port = 587
 user = "env(BREVO_SMTP_LOGIN)"
 pass = "env(BREVO_SMTP_KEY)"
 admin_email = "env(SENDER_EMAIL)"
-sender_name = "Hoop Squad"
+sender_name = "Swish"
 
 [auth.email.template.magic_link]
-subject = "Your Hoop Squad login code"
+subject = "Your Swish login code"
 content_path = "./supabase/templates/code.html"
 
 [auth.email.template.confirmation]
-subject = "Your Hoop Squad login code"
+subject = "Your Swish login code"
 content_path = "./supabase/templates/code.html"
 
 [functions.dispatch]

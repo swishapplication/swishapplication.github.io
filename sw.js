@@ -5,8 +5,8 @@ self.addEventListener("fetch", () => {}); // lets the app be installed to the ho
 
 self.addEventListener("push", (event) => {
   let d = {};
-  try { d = event.data ? event.data.json() : {}; } catch { d = { title: "Hoop Squad", body: event.data && event.data.text() }; }
-  event.waitUntil(self.registration.showNotification(d.title || "Hoop Squad", {
+  try { d = event.data ? event.data.json() : {}; } catch { d = { title: "Swish", body: event.data && event.data.text() }; }
+  event.waitUntil(self.registration.showNotification(d.title || "Swish", {
     body: d.body || "", icon: "icons/icon-192.png", badge: "icons/icon-192.png", data: { url: d.url || "./" },
   }));
 });

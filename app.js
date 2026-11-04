@@ -17,7 +17,7 @@ const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "
 const STAKES = [["game", "🏀 Next game"], ["dinner", "🍔 Dinner"], ["drinks", "🍻 Drinks"], ["water", "💧 Water / Gatorade"], ["custom", "✏️ Own idea"]];
 const stakeText = (k, custom) => k === "custom" ? (custom || "a surprise") : STAKES.find((x) => x[0] === k)[1];
 const parseDate = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
-const BALL = '<svg class="ball" viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="#ff6b1a"/><g fill="none" stroke="#1a0b02" stroke-width="2"><circle cx="20" cy="20" r="18"/><path d="M2 20h36M20 2v36M7 7c7 6 7 20 0 26M33 7c-7 6-7 20 0 26"/></g></svg>';
+const BALL = '<svg class="ball" viewBox="0 0 120 120"><rect width="120" height="120" rx="26" fill="#ff6b1a"/><g stroke="#0e0f13" stroke-width="4" stroke-linecap="round"><path d="M44 12v12M60 8v14M76 12v12"/></g><circle cx="60" cy="50" r="22" fill="#0e0f13"/><g fill="none" stroke="#ff6b1a" stroke-width="2.6"><path d="M38 50h44M60 28v44M45 35c8 8 8 22 0 30M75 35c-8 8-8 22 0 30"/></g><path d="M28 62h64" stroke="#f4f2ee" stroke-width="6" stroke-linecap="round"/><g fill="none" stroke="#f4f2ee" stroke-width="2.4" stroke-linecap="round"><path d="M32 62l12 36M46 62l10 36M74 62l-10 36M88 62l-12 36M44 98h32M36 80h48"/></g></svg>';
 const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const ls = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
@@ -25,7 +25,7 @@ const ls = { get: (k) => { try { return localStorage.getItem(k); } catch { retur
 // ================= state =================
 const state = {
   screen: "loading", user: null, profile: null, tab: "games", open: null, sort: "games",
-  settings: { app_name: "Hoop Squad", logo: null, pay_link: "", currency: "$" },
+  settings: { app_name: "Swish", logo: null, pay_link: "", currency: "$" },
   players: [], pending: [], rules: [], sessions: [], notifs: [], credits: [], debts: [],
   guestOpen: false, chOpen: false, tOpen: false, stake: "game", tstake: "dinner", chTarget: null, stakeCustom: "", tstakeCustom: "",
   loginEmail: "", codeSent: false, busy: false, pushState: "unknown", installEvt: null, lastSeen: Number(ls.get("lastSeenNotif") || 0),
@@ -540,7 +540,7 @@ function applyBranding() {
   const manifest = { name: st.app_name, short_name: st.app_name, start_url: new URL(".", location.href).href, scope: new URL(".", location.href).href, display: "standalone",
     background_color: "#0e0f13", theme_color: "#0e0f13", icons: [{ src: icon, sizes: "192x192", type: "image/png" }, { src: big, sizes: "512x512", type: "image/png", purpose: "any maskable" }] };
   const link = document.getElementById("manifest");
-  if (link && (st.app_name !== "Hoop Squad" || st.logo)) link.href = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" }));
+  if (link && (st.app_name !== "Swish" || st.logo)) link.href = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" }));
 }
 
 function render() {

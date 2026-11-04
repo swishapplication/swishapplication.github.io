@@ -16,7 +16,7 @@ concurrency:
 
 env:
   PROJECT_REF: nfppwukuijwilkjednur
-  APP_URL: https://bassemassaf03-code.github.io/swish/
+  APP_URL: https://swishapplication.github.io/
 
 jobs:
   backend:

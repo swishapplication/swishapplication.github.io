@@ -2,7 +2,7 @@
 
 A free app for booking our weekly basketball games: open it from the link, add it to your home screen, log in with your email.
 
-**App:** https://bassemassaf03-code.github.io/swish/
+**App:** https://swishapplication.github.io/
 
 ## How it works
 - **Website** (`index.html`, `app.js`, `style.css`) is hosted free on GitHub Pages.

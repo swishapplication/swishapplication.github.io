@@ -60,9 +60,9 @@ jobs:
       - name: Login email settings
         run: /tmp/run.sh supabase config push --project-ref "$PROJECT_REF" --yes
       - name: Notification sender settings
-        run: /tmp/run.sh supabase secrets set --project-ref "$PROJECT_REF" BREVO_API_KEY="${{ secrets.BREVO_API_KEY }}" SENDER_EMAIL="$SENDER_EMAIL" APP_URL="$APP_URL"
+        run: /tmp/run.sh supabase secrets set --yes --project-ref "$PROJECT_REF" BREVO_API_KEY="${{ secrets.BREVO_API_KEY }}" SENDER_EMAIL="$SENDER_EMAIL" APP_URL="$APP_URL"
       - name: Deploy notification sender
-        run: /tmp/run.sh supabase functions deploy dispatch --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
+        run: /tmp/run.sh supabase functions deploy dispatch --yes --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
       - name: Start notification sender
         run: |
           code=$(curl -s -o /tmp/out.json -w "%{http_code}" -X POST "https://$PROJECT_REF.supabase.co/functions/v1/dispatch" -H 'content-type: application/json' -d '{}')

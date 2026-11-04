@@ -1,0 +1,85 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  PROJECT_REF: nfppwukuijwilkjednur
+  APP_URL: https://bassemassaf03-code.github.io/hoop-squad/
+
+jobs:
+  backend:
+    name: Database, logins & notifications (Supabase)
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      BREVO_SMTP_LOGIN: ${{ secrets.BREVO_SMTP_LOGIN }}
+      BREVO_SMTP_KEY: ${{ secrets.BREVO_SMTP_KEY }}
+      SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Check secrets are set
+        run: |
+          for v in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD BREVO_SMTP_LOGIN BREVO_SMTP_KEY SENDER_EMAIL; do
+            if [ -z "${!v}" ]; then echo "::error::Missing GitHub secret $v"; exit 1; fi
+          done
+          if [ -z "${{ secrets.BREVO_API_KEY }}" ]; then echo "::error::Missing GitHub secret BREVO_API_KEY"; exit 1; fi
+      - name: Link Supabase project
+        run: supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+      - name: Update database
+        run: supabase db push --password "$SUPABASE_DB_PASSWORD" --include-all
+      - name: Login email settings
+        run: yes | supabase config push --project-ref "$PROJECT_REF"
+      - name: Notification sender settings
+        run: supabase secrets set --project-ref "$PROJECT_REF" BREVO_API_KEY="${{ secrets.BREVO_API_KEY }}" SENDER_EMAIL="$SENDER_EMAIL" APP_URL="$APP_URL"
+      - name: Deploy notification sender
+        run: supabase functions deploy dispatch --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
+      - name: Start notification sender
+        run: |
+          code=$(curl -s -o /tmp/out.json -w "%{http_code}" -X POST "https://$PROJECT_REF.supabase.co/functions/v1/dispatch" -H 'content-type: application/json' -d '{}')
+          cat /tmp/out.json; echo
+          [ "$code" = "200" ] || { echo "::error::Notification sender returned $code"; exit 1; }
+      - name: Health check (scheduler + push keys)
+        run: |
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+          URL=$(cat supabase/.temp/pooler-url)
+          export PGPASSWORD="$SUPABASE_DB_PASSWORD"
+          psql "$URL" -v ON_ERROR_STOP=1 -Atc "select 'cron jobs: ' || count(*) from cron.job where jobname = 'hoop-squad-tick'" | tee /tmp/h.txt
+          psql "$URL" -v ON_ERROR_STOP=1 -Atc "select 'config keys: ' || string_agg(key, ',' order by key) from private.config"
+          grep -q 'cron jobs: 1' /tmp/h.txt || { echo "::error::Scheduler (pg_cron) is not set up"; exit 1; }
+
+  website:
+    name: Website (GitHub Pages)
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect site files
+        run: |
+          mkdir _site
+          cp index.html app.js config.js style.css sw.js manifest.webmanifest _site/
+          cp -r icons _site/
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
